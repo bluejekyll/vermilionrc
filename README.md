@@ -33,10 +33,10 @@ noun: vermilion; noun: vermillion
 - Interprocess communication
 - Event bus
 
-## Prior work
+## Prior art
 
 - [Upstart](http://upstart.ubuntu.com/)
 - [systemd](https://www.freedesktop.org/wiki/Software/systemd/)
 - [launchd](https://en.wikipedia.org/wiki/Launchd)
 - [rc](https://www.freebsd.org/cgi/man.cgi?query=rc&sektion=8&manpath=freebsd-release-ports)
-
+- [daemontools](https://cr.yp.to/daemontools.html)
