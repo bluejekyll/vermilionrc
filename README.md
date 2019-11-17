@@ -31,7 +31,7 @@ noun: vermilion; noun: vermillion
 
 - Take over the world
 - Interprocess communication
-- Event bus
+- Event bus (This might be in scope)
 
 ## Prior art
 
