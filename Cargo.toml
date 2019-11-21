@@ -1,5 +1,5 @@
 [package]
-name = "vermilion"
+name = "vermilionrc"
 version = "0.0.0-unreleased"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
 edition = "2018"
