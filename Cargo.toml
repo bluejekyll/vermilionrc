@@ -13,4 +13,11 @@ repository = "https://github.com/bluejekyll/vermilion"
 readme = "README.md"
 license = "MIT/Apache-2.0"
 
+# Lion is the "launcher" process as described in the VermilionRC design docs.
+[[bin]]
+name = "lion"
+path = "src/lion.rs"
+
 [dependencies]
+futures = "0.3.1"
+tokio = { version = "0.2.4", no-default-features = true, features = ["process"] }
