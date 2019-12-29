@@ -6,5 +6,4 @@
 // copied, modified, or distributed except according to those terms.
 
 /// The main task is responsible for launching an application with a given set of parameters
-///
 pub fn main() {}

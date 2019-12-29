@@ -16,7 +16,7 @@ license = "MIT/Apache-2.0"
 # Lion is the "launcher" process as described in the VermilionRC design docs.
 [[bin]]
 name = "lion"
-path = "src/lion.rs"
+path = "src/bin/lion.rs"
 
 [dependencies]
 futures = "0.3.1"
