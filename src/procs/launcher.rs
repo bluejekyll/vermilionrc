@@ -5,9 +5,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-
-/// Recv stdout file descriptors to poll and log data from.
-/// 
-/// Rules: 
-///  - may listen for new file descriptors on pipe from ipc
-///  - may channel those file descriptors to stdout
+/// Launch programs
+///
+/// Rules:
+/// - may start processes
+/// - only listen to messages from IPC
+///   - verify messages are from the leader?
+/// - read configuration file for process to launch.
+pub fn launcher() {}

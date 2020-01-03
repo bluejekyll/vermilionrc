@@ -5,11 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-
-/// Launch programs
-/// 
-/// Rules: 
-/// - may start processes
-/// - only listen to messages from IPC
-///   - verify messages are from the leader?
-/// - read configuration file for process to launch.
+/// Issue commands to the Launcher
+///
+pub fn leader() {}

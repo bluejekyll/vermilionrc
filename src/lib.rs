@@ -7,4 +7,8 @@
 
 //! Common libray functions for Vermilion
 
-mod fork;
+pub mod control;
+pub mod fork;
+pub mod msg;
+pub mod pipe;
+pub mod procs;

@@ -25,7 +25,7 @@ noun: vermilion; noun: vermillion
 - Declaritive extensibility
 - Async or event driven startup
 - Optional dependent restart driven by parent processes
-- Log aggregation and forwarding
+- stdout aggregation and forwarding
 - Embeddable in other existing init systems
 - User mode and super user (priviledged) modes supported
 
