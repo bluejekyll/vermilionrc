@@ -31,6 +31,8 @@ pub struct Logger;
 
 impl Process for Logger {
     fn run(self, control: CtlEnd<Read>) {
+        use std::io::Read;
+
         println!("Logger started");
 
         let mut input = String::new();
@@ -39,9 +41,12 @@ impl Process for Logger {
 
         println!("received filedescriptor: {:?}", fd);
 
-        let mut buf = [0u8; 1024];
-        let len = read(fd.raw_fd(), &mut buf).expect("failed to read");
+        let mut reader = fd
+            .into_async_pipe_end()
+            .expect("could not make async pipe end");
 
+        let mut buf = [0u8; 1024];
+        let len = reader.read(&mut buf).expect("failed to read");
         let line = String::from_utf8_lossy(&buf[..len]);
         println!("LOG_LINE: {}", line);
     }

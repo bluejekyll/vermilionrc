@@ -7,7 +7,8 @@
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::unix::net::UnixDatagram;
 
 use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockProtocol, SockType};
 use nix::unistd::close;
@@ -21,17 +22,6 @@ pub struct CtlEnd<E: End> {
 }
 
 impl<E: End> CtlEnd<E> {
-    pub fn from_raw_fd(raw_fd: RawFd) -> Self {
-        Self {
-            raw_fd,
-            ghost: PhantomData,
-        }
-    }
-
-    pub fn raw_fd(&self) -> RawFd {
-        self.raw_fd
-    }
-
     /// Forget the fd so that drop is not called after being associated to STDIN or similar
     pub fn forget(&mut self) {
         self.raw_fd = -1;
@@ -43,6 +33,37 @@ impl<E: End> CtlEnd<E> {
         }
 
         close(self.raw_fd)
+    }
+
+    pub fn into_async_pipe_end(mut self) -> nix::Result<AsyncCtlEnd<E>> {
+        let fd = self.into_raw_fd();
+        // this is safe since we are passing ownership from self to the new UnixStream
+        let stream = unsafe { UnixDatagram::from_raw_fd(fd) };
+
+        Ok(AsyncCtlEnd::from_unix_stream(stream))
+    }
+}
+
+impl<E: End> FromRawFd for CtlEnd<E> {
+    unsafe fn from_raw_fd(raw_fd: RawFd) -> Self {
+        Self {
+            raw_fd,
+            ghost: PhantomData,
+        }
+    }
+}
+
+impl<E: End> AsRawFd for CtlEnd<E> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.raw_fd
+    }
+}
+
+impl<E: End> IntoRawFd for CtlEnd<E> {
+    fn into_raw_fd(mut self) -> RawFd {
+        let raw_fd = self.raw_fd;
+        self.forget();
+        raw_fd
     }
 }
 
@@ -79,17 +100,20 @@ impl Control {
     pub fn new() -> nix::Result<Self> {
         let (read, write) = socketpair(
             AddressFamily::Unix,
-            SockType::Stream,
+            SockType::Datagram,
             None,
             SockFlag::empty(),
         )?;
 
         println!("created socketpair, read: {} write: {}", read, write);
 
-        Ok(Self {
-            read: CtlEnd::from_raw_fd(read),
-            write: CtlEnd::from_raw_fd(write),
-        })
+        // This is safe, because the CrlEnds are taking direct ownership of the FileHandles
+        unsafe {
+            Ok(Self {
+                read: CtlEnd::from_raw_fd(read),
+                write: CtlEnd::from_raw_fd(write),
+            })
+        }
     }
 
     pub fn take_writer(self) -> CtlEnd<Write> {
@@ -100,5 +124,27 @@ impl Control {
     pub fn take_reader(self) -> CtlEnd<Read> {
         let Control { read, mut write } = self;
         read
+    }
+}
+
+pub struct AsyncCtlEnd<E: End> {
+    datagram: UnixDatagram,
+    ghost: PhantomData<E>,
+}
+
+impl<E: End> AsyncCtlEnd<E> {
+    pub fn from_unix_stream(datagram: UnixDatagram) -> Self {
+        Self {
+            datagram,
+            ghost: PhantomData,
+        }
+    }
+
+    pub fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.datagram.recv(buf)
+    }
+
+    pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
+        self.datagram.send(buf)
     }
 }

@@ -6,8 +6,10 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::fmt::Debug;
+use std::fs::File;
 use std::marker::PhantomData;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::unix::net::UnixStream;
 
 use nix::unistd::{close, dup2, pipe as nix_pipe};
 
@@ -39,17 +41,6 @@ pub struct PipeEnd<E: End> {
 }
 
 impl<E: End> PipeEnd<E> {
-    pub fn from_raw_fd(raw_fd: RawFd) -> Self {
-        Self {
-            raw_fd,
-            ghost: PhantomData,
-        }
-    }
-
-    pub fn raw_fd(&self) -> RawFd {
-        self.raw_fd
-    }
-
     /// Forget the fd so that drop is not called after being associated to STDIN or similar
     pub fn forget(&mut self) {
         self.raw_fd = -1;
@@ -67,7 +58,7 @@ impl<E: End> PipeEnd<E> {
     ///
     /// This will close the target_fd before duping, then dup to the new target and return the new Pipe.
     pub fn dup(&self, target_fd: RawFd) -> nix::Result<Self> {
-        close(target_fd);
+        close(target_fd)?;
         let new_fd = dup2(self.raw_fd, target_fd)?;
 
         assert_eq!(new_fd, target_fd);
@@ -100,6 +91,37 @@ impl<E: End> PipeEnd<E> {
 
         Ok(())
     }
+
+    pub fn into_async_pipe_end(self) -> nix::Result<AsyncPipeEnd<E>> {
+        let fd = self.into_raw_fd();
+        // this is safe since we are passing ownership from self to the new UnixStream
+        let stream = unsafe { File::from_raw_fd(fd) };
+
+        Ok(AsyncPipeEnd::from_file(stream))
+    }
+}
+
+impl<E: End> FromRawFd for PipeEnd<E> {
+    unsafe fn from_raw_fd(raw_fd: RawFd) -> Self {
+        Self {
+            raw_fd,
+            ghost: PhantomData,
+        }
+    }
+}
+
+impl<E: End> AsRawFd for PipeEnd<E> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.raw_fd
+    }
+}
+
+impl<E: End> IntoRawFd for PipeEnd<E> {
+    fn into_raw_fd(mut self) -> RawFd {
+        let raw_fd = self.raw_fd;
+        self.forget();
+        raw_fd
+    }
 }
 
 // TODO: requires forgetting self when STDIN or SRDOUT are attached to it...
@@ -128,7 +150,7 @@ pub struct Pipe {
 }
 
 impl Pipe {
-    pub(crate) fn from_raw_fd(read: RawFd, write: RawFd) -> Self {
+    pub(crate) unsafe fn from_raw_fd(read: RawFd, write: RawFd) -> Self {
         Self {
             read: PipeEnd::from_raw_fd(read),
             write: PipeEnd::from_raw_fd(write),
@@ -144,23 +166,57 @@ impl Pipe {
 
         println!("created pipe, read: {} write: {}", read, write);
 
-        Ok(Self {
-            read: PipeEnd::from_raw_fd(read),
-            write: PipeEnd::from_raw_fd(write),
-        })
+        // sole ownership of the Pipe's file descriptors
+        unsafe {
+            Ok(Self {
+                read: PipeEnd::from_raw_fd(read),
+                write: PipeEnd::from_raw_fd(write),
+            })
+        }
     }
 
     pub fn take_writer(self) -> PipeEnd<Write> {
-        let Pipe { mut read, write } = self;
+        let Pipe { write, .. } = self;
         write
     }
 
     pub fn take_reader(self) -> PipeEnd<Read> {
-        let Pipe { read, mut write } = self;
+        let Pipe { read, .. } = self;
         read
     }
 
+    // TODO: is this safe?
     pub fn split(self) -> (PipeEnd<Read>, PipeEnd<Write>) {
         (self.read, self.write)
+    }
+}
+
+pub struct AsyncPipeEnd<E: End> {
+    stream: File,
+    ghost: PhantomData<E>,
+}
+
+impl<E: End> AsyncPipeEnd<E> {
+    pub fn from_file(stream: File) -> Self {
+        Self {
+            stream,
+            ghost: PhantomData,
+        }
+    }
+}
+
+impl std::io::Read for AsyncPipeEnd<Read> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.stream.read(buf)
+    }
+}
+
+impl std::io::Write for AsyncPipeEnd<Write> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
     }
 }

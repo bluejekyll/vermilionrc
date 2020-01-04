@@ -5,6 +5,9 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::io::Write;
+use std::os::unix::io::AsRawFd;
+
 use nix::unistd::write;
 
 use vermilionrc::control::Control;
@@ -22,7 +25,12 @@ fn main() {
     let (reader, writer) = pipe.split();
     msg::send_read_fd(&logger.control, reader);
 
-    write(writer.raw_fd(), "Vemilion say hello to logger".as_bytes()).expect("failed to write");
+    let mut writer = writer
+        .into_async_pipe_end()
+        .expect("failed to get UnixStream");
+    writer
+        .write_all("Vemilion say hello to logger".as_bytes())
+        .expect("failed to write");
 
     // let (leader_read, leader_write) = pipe().expect("failed to create leader");
     // let (stdoutger_read, stdoutger_write) = pipe().expect("failed to create pipe for stdoutger");

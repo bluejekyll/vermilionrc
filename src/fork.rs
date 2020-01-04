@@ -33,10 +33,13 @@ impl FdAction {
         existing_read: RawFd,
         existing_write: RawFd,
     ) -> nix::Result<Pipe> {
-        match self {
-            FdAction::Inherit => Ok(Pipe::from_raw_fd(existing_read, existing_write)),
-            FdAction::Pipe => Pipe::new(),
-            FdAction::Null => Ok(Pipe::from_raw_fd(NULL, NULL)),
+        // This is safe, as all the fd are either singly owned or understood to be shared
+        unsafe {
+            match self {
+                FdAction::Inherit => Ok(Pipe::from_raw_fd(existing_read, existing_write)),
+                FdAction::Pipe => Pipe::new(),
+                FdAction::Null => Ok(Pipe::from_raw_fd(NULL, NULL)),
+            }
         }
     }
 }
