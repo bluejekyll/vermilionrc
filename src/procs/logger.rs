@@ -6,13 +6,16 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::os::unix::io::AsRawFd;
+use std::process::Stdio;
 
+use async_trait::async_trait;
+use clap::{App, ArgMatches, SubCommand};
 use nix::unistd::read;
 use tokio::io::AsyncReadExt;
 use tokio::runtime;
 
 use crate::control::{Control, CtlEnd};
-use crate::fork::{FdAction, StdIo};
+use crate::fork::StdIoConf;
 use crate::msg;
 use crate::pipe::{PipeEnd, Read, Write};
 use crate::procs::Process;
@@ -25,49 +28,40 @@ use crate::procs::Process;
 #[derive(Debug)]
 pub struct Logger;
 
-// impl Logger {
-//     fn new(control: Control) -> Self {
-//         Self { control }
-//     }
-// }
-
+#[async_trait]
 impl Process for Logger {
-    fn run(self, control: CtlEnd<Read>) {
-        let mut runtime = runtime::Builder::new()
-            .basic_scheduler()
-            .enable_io()
-            .enable_time()
-            .build()
-            .expect("Failed to initialize Tokio Runtime");
+    const NAME: &'static str = "logger";
+    type Direction = Read;
 
-        runtime.block_on(async move {
-            println!("Logger started");
-
-            let mut input = String::new();
-
-            let fd = msg::recv_msg(&control).expect("no msg received");
-
-            println!("received filedescriptor: {:?}", fd);
-
-            let mut reader = fd
-                .into_async_pipe_end()
-                .expect("could not make async pipe end");
-
-            let mut buf = [0u8; 1024];
-            let len = reader.read(&mut buf).await.expect("failed to read");
-            let line = String::from_utf8_lossy(&buf[..len]);
-            println!("LOG_LINE: {}", line);
-        });
+    fn sub_command() -> App<'static, 'static> {
+        SubCommand::with_name(Self::NAME).about("Logger for the VermilionRC framework")
     }
 
-    fn get_stdio() -> StdIo {
-        StdIo {
+    async fn run(control: CtlEnd<Read>) {
+        println!("Logger started");
+
+        let fd = msg::recv_msg(&control).expect("no msg received");
+
+        println!("received filedescriptor: {:?}", fd);
+
+        let mut reader = fd
+            .into_async_pipe_end()
+            .expect("could not make async pipe end");
+
+        let mut buf = [0u8; 1024];
+        let len = reader.read(&mut buf).await.expect("failed to read");
+        let line = String::from_utf8_lossy(&buf[..len]);
+        println!("LOG_LINE: {}", line);
+    }
+
+    fn get_stdio() -> StdIoConf {
+        StdIoConf {
             // we need a new input line
-            stdin: FdAction::Pipe,
+            stdin: Stdio::inherit(),
             // the stdoutger should never send data back to any other process
-            stderr: FdAction::Null,
+            stderr: Stdio::inherit(),
             // the stdoutger will initially inherit the parents output stream for stdoutging...
-            stdout: FdAction::Inherit,
+            stdout: Stdio::inherit(),
         }
     }
 }

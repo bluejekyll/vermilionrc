@@ -117,13 +117,19 @@ impl Control {
     }
 
     pub fn take_writer(self) -> CtlEnd<Write> {
-        let Control { mut read, write } = self;
+        let Control { write, .. } = self;
         write
     }
 
     pub fn take_reader(self) -> CtlEnd<Read> {
-        let Control { read, mut write } = self;
+        let Control { read, .. } = self;
         read
+    }
+
+    // FIXME: maybe unsafe?
+    pub fn split(self) -> (CtlEnd<Read>, CtlEnd<Write>) {
+        let Control { read, write } = self;
+        (read, write)
     }
 }
 

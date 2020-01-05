@@ -15,18 +15,32 @@ pub use leader::leader;
 pub use logger::Logger;
 pub use supervisor::supervisor;
 
+use std::process::Stdio;
+
+use async_trait::async_trait;
+use clap::{App, SubCommand};
+
 use crate::control::CtlEnd;
-use crate::fork::{FdAction, StdIo};
-use crate::pipe::{PipeEnd, Read, Write};
+use crate::fork::StdIoConf;
+use crate::pipe::{End, PipeEnd, Read, Write};
 
+pub const CONTROL_IN: &str = "control-in";
+pub const INIT: &str = "init";
+
+#[async_trait]
 pub trait Process: Send + 'static {
-    fn run(self, control: CtlEnd<Read>);
+    const NAME: &'static str;
+    type Direction: End;
 
-    fn get_stdio() -> StdIo {
-        StdIo {
-            stdin: FdAction::Pipe,
-            stderr: FdAction::Pipe,
-            stdout: FdAction::Pipe,
+    fn sub_command() -> App<'static, 'static>;
+
+    async fn run(control: CtlEnd<Self::Direction>);
+
+    fn get_stdio() -> StdIoConf {
+        StdIoConf {
+            stdin: Stdio::piped(),
+            stderr: Stdio::piped(),
+            stdout: Stdio::piped(),
         }
     }
 }

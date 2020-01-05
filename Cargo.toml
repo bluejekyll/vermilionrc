@@ -18,6 +18,8 @@ name = "vermilion"
 path = "src/bin/vermilion.rs"
 
 [dependencies]
+async-trait = "0.1.22"
+clap = "2.33"
 futures = "0.3.1"
 nix = "0.16.1"
-tokio = { version = "0.2.4", default-features = false, features = ["fs", "io-util", "rt-core", "rt-util", "time", "uds"] }
+tokio = { version = "0.2.4", default-features = false, features = ["fs", "io-util", "process", "rt-core", "rt-util", "time", "uds"] }

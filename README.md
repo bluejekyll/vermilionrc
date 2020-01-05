@@ -1,3 +1,5 @@
+![VermilionRC](vermilionrc-logo.svg)
+
 # VermilionRC
 
 [![Discord](https://img.shields.io/discord/590067103822774272.svg)](https://discord.gg/Drs37ES)

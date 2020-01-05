@@ -11,4 +11,5 @@ pub mod control;
 pub mod fork;
 pub mod msg;
 pub mod pipe;
+// FIXME: rename to proc
 pub mod procs;
