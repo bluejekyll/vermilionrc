@@ -6,12 +6,15 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::fmt::Debug;
-use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use nix::unistd::{close, dup2, pipe as nix_pipe};
+use tokio::fs::File;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Read;
@@ -95,7 +98,7 @@ impl<E: End> PipeEnd<E> {
     pub fn into_async_pipe_end(self) -> nix::Result<AsyncPipeEnd<E>> {
         let fd = self.into_raw_fd();
         // this is safe since we are passing ownership from self to the new UnixStream
-        let stream = unsafe { File::from_raw_fd(fd) };
+        let stream = unsafe { File::from_std(std::fs::File::from_raw_fd(fd)) };
 
         Ok(AsyncPipeEnd::from_file(stream))
     }
@@ -205,18 +208,34 @@ impl<E: End> AsyncPipeEnd<E> {
     }
 }
 
-impl std::io::Read for AsyncPipeEnd<Read> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.stream.read(buf)
+impl AsyncRead for AsyncPipeEnd<Read> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<tokio::io::Result<usize>> {
+        let pin = Pin::new(&mut self.stream);
+        pin.poll_read(cx, buf)
     }
 }
 
-impl std::io::Write for AsyncPipeEnd<Write> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.stream.write(buf)
+impl AsyncWrite for AsyncPipeEnd<Write> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &[u8],
+    ) -> Poll<tokio::io::Result<usize>> {
+        let pin = Pin::new(&mut self.stream);
+        pin.poll_write(cx, buf)
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.stream.flush()
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<tokio::io::Result<()>> {
+        let pin = Pin::new(&mut self.stream);
+        pin.poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<tokio::io::Result<()>> {
+        let pin = Pin::new(&mut self.stream);
+        pin.poll_shutdown(cx)
     }
 }

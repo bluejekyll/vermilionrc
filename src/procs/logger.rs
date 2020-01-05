@@ -8,6 +8,8 @@
 use std::os::unix::io::AsRawFd;
 
 use nix::unistd::read;
+use tokio::io::AsyncReadExt;
+use tokio::runtime;
 
 use crate::control::{Control, CtlEnd};
 use crate::fork::{FdAction, StdIo};
@@ -31,24 +33,31 @@ pub struct Logger;
 
 impl Process for Logger {
     fn run(self, control: CtlEnd<Read>) {
-        use std::io::Read;
+        let mut runtime = runtime::Builder::new()
+            .basic_scheduler()
+            .enable_io()
+            .enable_time()
+            .build()
+            .expect("Failed to initialize Tokio Runtime");
 
-        println!("Logger started");
+        runtime.block_on(async move {
+            println!("Logger started");
 
-        let mut input = String::new();
+            let mut input = String::new();
 
-        let fd = msg::recv_msg(&control).expect("no msg received");
+            let fd = msg::recv_msg(&control).expect("no msg received");
 
-        println!("received filedescriptor: {:?}", fd);
+            println!("received filedescriptor: {:?}", fd);
 
-        let mut reader = fd
-            .into_async_pipe_end()
-            .expect("could not make async pipe end");
+            let mut reader = fd
+                .into_async_pipe_end()
+                .expect("could not make async pipe end");
 
-        let mut buf = [0u8; 1024];
-        let len = reader.read(&mut buf).expect("failed to read");
-        let line = String::from_utf8_lossy(&buf[..len]);
-        println!("LOG_LINE: {}", line);
+            let mut buf = [0u8; 1024];
+            let len = reader.read(&mut buf).await.expect("failed to read");
+            let line = String::from_utf8_lossy(&buf[..len]);
+            println!("LOG_LINE: {}", line);
+        });
     }
 
     fn get_stdio() -> StdIo {

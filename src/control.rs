@@ -139,11 +139,15 @@ impl<E: End> AsyncCtlEnd<E> {
             ghost: PhantomData,
         }
     }
+}
 
+impl AsyncCtlEnd<Read> {
     pub fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.datagram.recv(buf)
     }
+}
 
+impl AsyncCtlEnd<Write> {
     pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.datagram.send(buf)
     }
