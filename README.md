@@ -1,13 +1,14 @@
-![VermilionRC](vermilionrc-logo.svg)
-
 # VermilionRC
+
+<img src="vermilionrc-logo.svg" width="250" height="250" alt="VermilionRC"/>
+
 
 [![Discord](https://img.shields.io/discord/590067103822774272.svg)](https://discord.gg/Drs37ES)
 
 A safe and reliable process manager. The name is derived from the color of paint that is often used as a protective coating on Rust, i.e. this can be used to help protect and run Rust binaries, or any binary.
 
 ```
-noun: vermilion; noun: vermillion
+noun: vermilion
 
     a brilliant red pigment made from mercury sulfide (cinnabar).
         a brilliant red color.
