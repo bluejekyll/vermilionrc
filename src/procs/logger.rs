@@ -58,9 +58,9 @@ impl Process for Logger {
         StdIoConf {
             // we need a new input line
             stdin: Stdio::inherit(),
-            // the stdoutger should never send data back to any other process
+            // the logger should never send data back to any other process
             stderr: Stdio::inherit(),
-            // the stdoutger will initially inherit the parents output stream for stdoutging...
+            // the logger will initially inherit the parents output stream for logging...
             stdout: Stdio::inherit(),
         }
     }

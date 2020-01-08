@@ -10,6 +10,6 @@
 /// Rules:
 ///   - may listen to ipc pipe for commands
 ///   - should restart failed processes
-///   - should send stdout from child prcess to IPC (and on to stdoutger)
+///   - should send stdout from child prcess to IPC (and on to logger)
 ///   - stdin should be inherited?
 pub fn supervisor() {}

@@ -80,7 +80,7 @@ impl<E: End> Drop for CtlEnd<E> {
 
         println!("closing fd: {} ({})", self.raw_fd, E::display());
 
-        // TODO: need the stdoutger...
+        // TODO: need the logger...
         close(self.raw_fd)
             .map_err(|e| println!("error closing file handle: {}", self.raw_fd))
             .ok();

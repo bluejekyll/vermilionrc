@@ -89,7 +89,7 @@ fn main() {
 
 async fn init(_args: &ArgMatches<'_>) {
     // start the logger first
-    let logger = new_process(Logger).expect("failed to start stdoutger");
+    let logger = new_process(Logger).expect("failed to start logger");
 
     let pipe = Pipe::new().expect("failed to create pipe");
 
@@ -105,7 +105,7 @@ async fn init(_args: &ArgMatches<'_>) {
         .expect("failed to write");
 
     // let (leader_read, leader_write) = pipe().expect("failed to create leader");
-    // let (stdoutger_read, stdoutger_write) = pipe().expect("failed to create pipe for stdoutger");
+    // let (logger_read, logger_write) = pipe().expect("failed to create pipe for logger");
     // let (ipc_read, ipc_write) = pipe().expect("failed to create pipe for ipc");
     // let (launcher_read, launcher_write) = pipe().expect("failed to create pipe for launcher");
 
