@@ -10,7 +10,7 @@ mod leader;
 mod logger;
 mod supervisor;
 
-pub use ipc::ipc;
+pub use ipc::Ipc;
 pub use leader::leader;
 pub use logger::Logger;
 pub use supervisor::supervisor;
@@ -18,11 +18,11 @@ pub use supervisor::supervisor;
 use std::process::Stdio;
 
 use async_trait::async_trait;
-use clap::{App, SubCommand};
+use clap::App;
 
-use crate::control::CtlEnd;
+use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
-use crate::pipe::{End, PipeEnd, Read, Write};
+use crate::pipe::End;
 
 pub const CONTROL_IN: &str = "control-in";
 pub const INIT: &str = "init";
@@ -34,7 +34,7 @@ pub trait Process: Send + 'static {
 
     fn sub_command() -> App<'static, 'static>;
 
-    async fn run(control: CtlEnd<Self::Direction>);
+    async fn run(control: AsyncCtlEnd<Self::Direction>);
 
     fn get_stdio() -> StdIoConf {
         StdIoConf {

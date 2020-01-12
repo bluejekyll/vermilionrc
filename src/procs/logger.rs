@@ -5,19 +5,17 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::os::unix::io::AsRawFd;
 use std::process::Stdio;
 
 use async_trait::async_trait;
-use clap::{App, ArgMatches, SubCommand};
-use nix::unistd::read;
+use clap::{App, SubCommand};
+use futures::pin_mut;
 use tokio::io::AsyncReadExt;
-use tokio::runtime;
 
-use crate::control::{Control, CtlEnd};
+use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg;
-use crate::pipe::{PipeEnd, Read, Write};
+use crate::pipe::Read;
 use crate::procs::Process;
 
 /// Recv stdout file descriptors to poll and stdout data from.
@@ -37,10 +35,11 @@ impl Process for Logger {
         SubCommand::with_name(Self::NAME).about("Logger for the VermilionRC framework")
     }
 
-    async fn run(control: CtlEnd<Read>) {
+    async fn run(control: AsyncCtlEnd<Self::Direction>) {
         println!("Logger started");
 
-        let fd = msg::recv_msg(&control).expect("no msg received");
+        pin_mut!(control);
+        let fd = msg::recv_msg(control).await.expect("no msg received");
 
         println!("received filedescriptor: {:?}", fd);
 

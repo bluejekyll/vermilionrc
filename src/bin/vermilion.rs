@@ -6,18 +6,19 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::ffi::OsString;
-use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::io::FromRawFd;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use nix::unistd::write;
+use futures::pin_mut;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime;
 
-use vermilionrc::control::{Control, CtlEnd};
-use vermilionrc::fork::{new_process, StdIoConf, STDOUT};
+use vermilionrc::control::CtlEnd;
+use vermilionrc::fork::new_process;
 use vermilionrc::msg;
-use vermilionrc::pipe::{End, Pipe, Read, Write};
-use vermilionrc::procs::{self, ipc, leader, supervisor, Logger, Process};
+use vermilionrc::pipe::Pipe;
+use vermilionrc::procs::{self, Logger, Process};
+use vermilionrc::Error;
 
 trait SetupClapApp {
     fn setup_clap_app(self) -> Self;
@@ -51,7 +52,7 @@ fn init_sub_command() -> App<'static, 'static> {
     SubCommand::with_name(procs::INIT).about("initialize the VermilionRC framework")
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let args = App::new(env!("CARGO_PKG_NAME"))
         .setup_clap_app()
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -87,20 +88,26 @@ fn main() {
     })
 }
 
-async fn init(_args: &ArgMatches<'_>) {
+async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
     // start the logger first
     let logger = new_process(Logger).expect("failed to start logger");
 
     let pipe = Pipe::new().expect("failed to create pipe");
 
     let (reader, writer) = pipe.split();
-    msg::send_read_fd(&logger.control, reader).expect("failed to send filedescriptor");
+
+    let logger_control = logger.control.into_async_pipe_end()?;
+    pin_mut!(logger_control);
+
+    msg::send_fd(logger_control, reader)
+        .await
+        .expect("failed to send filedescriptor");
 
     let mut writer = writer
         .into_async_pipe_end()
         .expect("failed to get UnixStream");
     writer
-        .write_all("Vemilion say hello to logger".as_bytes())
+        .write_all(b"Vemilion say hello to logger")
         .await
         .expect("failed to write");
 
@@ -115,9 +122,11 @@ async fn init(_args: &ArgMatches<'_>) {
         "child exited: {}",
         logger.child.await.expect("logger failed")
     );
+
+    Err(Error::from("VermilionRC exited"))
 }
 
-async fn run<P: Process>(args: &ArgMatches<'_>) {
+async fn run<P: Process>(args: &ArgMatches<'_>) -> Result<(), Error> {
     let ctl_in = args
         .value_of_lossy(procs::CONTROL_IN)
         .expect("control-in not specified");
@@ -126,5 +135,7 @@ async fn run<P: Process>(args: &ArgMatches<'_>) {
     let ctl = unsafe { CtlEnd::<P::Direction>::from_raw_fd(fd) };
 
     println!("Running {}", P::NAME);
-    P::run(ctl).await;
+    P::run(ctl.into_async_pipe_end()?).await;
+
+    Err(Error::from("Process unexpected ended"))
 }

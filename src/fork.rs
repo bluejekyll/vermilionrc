@@ -9,11 +9,10 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::process::Stdio;
 
-use nix::unistd::{close, fork, ForkResult, Pid};
 use tokio::process::Command;
 
 use crate::control::{Control, CtlEnd};
-use crate::pipe::{Pipe, PipeEnd, Read, Write};
+use crate::pipe::Write;
 use crate::procs::{self, Process};
 
 pub const NULL: RawFd = -1;
@@ -32,7 +31,7 @@ pub struct Child {
     pub control: CtlEnd<Write>,
 }
 
-pub fn new_process<P>(child_task: P) -> Result<Child, &'static str>
+pub fn new_process<P>(_child_task: P) -> Result<Child, &'static str>
 where
     P: Process,
 {

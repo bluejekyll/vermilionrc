@@ -8,7 +8,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
-use std::os::unix::net::UnixStream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -142,7 +141,7 @@ impl<E: End> Drop for PipeEnd<E> {
 
         // TODO: need the logger...
         close(self.raw_fd)
-            .map_err(|e| println!("error closing file handle: {}", self.raw_fd))
+            .map_err(|e| println!("error closing file handle ({}): {}", self.raw_fd, e))
             .ok();
     }
 }

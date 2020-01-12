@@ -12,4 +12,7 @@ pub mod fork;
 pub mod msg;
 pub mod pipe;
 // FIXME: rename to proc
+mod error;
 pub mod procs;
+
+pub use error::Error;
