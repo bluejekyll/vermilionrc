@@ -24,10 +24,11 @@ enum MessageType {
 }
 
 pub async fn send_fd<E: End>(
-    mut target: Pin<&mut AsyncCtlEnd<Write>>,
+    target: &mut AsyncCtlEnd<Write>,
     fd_to_send: PipeEnd<E>,
 ) -> Result<(), Error> {
     let fd_to_send = &[fd_to_send.into_raw_fd()];
+    let mut target = Pin::new(target);
     let target = &mut target;
 
     poll_fn(move |cx| {
@@ -50,7 +51,8 @@ pub async fn send_fd<E: End>(
     Ok(())
 }
 
-pub async fn recv_msg<E: End>(mut from: Pin<&mut AsyncCtlEnd<Read>>) -> Result<PipeEnd<E>, Error> {
+pub async fn recv_msg<E: End>(from: &mut AsyncCtlEnd<Read>) -> Result<PipeEnd<E>, Error> {
+    let mut from = Pin::new(from);
     let from = &mut from;
 
     let pipe = poll_fn(move |cx| {

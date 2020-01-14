@@ -9,7 +9,6 @@ use std::ffi::OsString;
 use std::os::unix::io::FromRawFd;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use futures::pin_mut;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime;
 
@@ -96,10 +95,8 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
 
     let (reader, writer) = pipe.split();
 
-    let logger_control = logger.control.into_async_pipe_end()?;
-    pin_mut!(logger_control);
-
-    msg::send_fd(logger_control, reader)
+    let mut logger_control = logger.control.into_async_pipe_end()?;
+    msg::send_fd(&mut logger_control, reader)
         .await
         .expect("failed to send filedescriptor");
 

@@ -9,7 +9,6 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use clap::{App, SubCommand};
-use futures::pin_mut;
 use tokio::io::AsyncReadExt;
 
 use crate::control::AsyncCtlEnd;
@@ -41,11 +40,10 @@ impl Process for Ipc {
     }
 
     /// This should be the ctl in port from the leader
-    async fn run(control: AsyncCtlEnd<Self::Direction>) {
+    async fn run(mut control: AsyncCtlEnd<Self::Direction>) {
         println!("Ipc started");
 
-        pin_mut!(control);
-        let fd = msg::recv_msg(control).await.expect("no msg received");
+        let fd = msg::recv_msg(&mut control).await.expect("no msg received");
 
         println!("received filedescriptor: {:?}", fd);
 
