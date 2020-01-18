@@ -30,9 +30,8 @@ use crate::procs::Process;
 pub struct Ipc;
 
 #[async_trait]
-impl Process for Ipc {
+impl Process<Read> for Ipc {
     const NAME: &'static str = "ipc";
-    type Direction = Read;
 
     /// CLI SubCommand arguments
     fn sub_command() -> App<'static, 'static> {
@@ -40,7 +39,7 @@ impl Process for Ipc {
     }
 
     /// This should be the ctl in port from the leader
-    async fn run(mut control: AsyncCtlEnd<Self::Direction>) {
+    async fn run(mut control: AsyncCtlEnd<Read>) {
         println!("Ipc started");
 
         let fd = msg::recv_msg(&mut control).await.expect("no msg received");

@@ -9,12 +9,12 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use clap::{App, SubCommand};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, BufReader};
 
 use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg;
-use crate::pipe::Read;
+use crate::pipe::{AsyncPipeEnd, Read};
 use crate::procs::Process;
 
 /// Recv stdout file descriptors to poll and stdout data from.
@@ -26,39 +26,63 @@ use crate::procs::Process;
 pub struct Logger;
 
 #[async_trait]
-impl Process for Logger {
+impl Process<Read> for Logger {
     const NAME: &'static str = "logger";
-    type Direction = Read;
 
     fn sub_command() -> App<'static, 'static> {
         SubCommand::with_name(Self::NAME).about("Logger for the VermilionRC framework")
     }
 
-    async fn run(mut control: AsyncCtlEnd<Self::Direction>) {
+    async fn run(mut control: AsyncCtlEnd<Read>) {
         println!("Logger started");
 
-        let fd = msg::recv_msg(&mut control).await.expect("no msg received");
+        loop {
+            let fd = msg::recv_msg(&mut control).await;
+            let fd = match fd {
+                Ok(fd) => fd,
+                Err(e) => {
+                    eprintln!("error receiving file descriptor");
+                    continue;
+                }
+            };
 
-        println!("received filedescriptor: {:?}", fd);
+            // ok we got a file descriptor. Now we will spawn a background task to listen for log messages from it
+            eprintln!("received filedescriptor: {:?}", fd);
 
-        let mut reader = fd
-            .into_async_pipe_end()
-            .expect("could not make async pipe end");
+            let reader = fd
+                .into_async_pipe_end()
+                .expect("could not make async pipe end");
 
-        let mut buf = [0u8; 1024];
-        let len = reader.read(&mut buf).await.expect("failed to read");
-        let line = String::from_utf8_lossy(&buf[..len]);
-        println!("LOG_LINE: {}", line);
+            tokio::spawn(print_messages_to_stdout(reader));
+        }
     }
 
     fn get_stdio() -> StdIoConf {
         StdIoConf {
             // we need a new input line
-            stdin: Stdio::inherit(),
+            stdin: Stdio::null(),
             // the logger should never send data back to any other process
             stderr: Stdio::inherit(),
             // the logger will initially inherit the parents output stream for logging...
             stdout: Stdio::inherit(),
         }
     }
+}
+
+async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>) {
+    let mut lines = BufReader::with_capacity(1_024, reader).lines();
+
+    // read until EOF, or there's an error
+    loop {
+        match lines.next_line().await {
+            // FIXME: need the PID, of the process here.
+            Ok(Some(line)) => println!("LOG: {}", line),
+            Ok(None) => break,
+            // FIXME: turn into a trace
+            Err(e) => println!("LOG error: {}", e),
+        }
+    }
+
+    // FIXME: need a PID here
+    println!("LOGGING SHUTDOWN for pid: ?FIXME?");
 }

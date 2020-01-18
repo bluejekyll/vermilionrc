@@ -9,14 +9,16 @@ use std::ffi::OsString;
 use std::os::unix::io::FromRawFd;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
+use futures::select;
 use tokio::io::AsyncWriteExt;
+use tokio::process::ChildStdout;
 use tokio::runtime;
 
 use vermilionrc::control::CtlEnd;
 use vermilionrc::fork::new_process;
 use vermilionrc::msg;
-use vermilionrc::pipe::Pipe;
-use vermilionrc::procs::{self, Logger, Process};
+use vermilionrc::pipe::{End, Pipe, Read, Write};
+use vermilionrc::procs::{self, Leader, Logger, Process};
 use vermilionrc::Error;
 
 trait SetupClapApp {
@@ -61,6 +63,11 @@ fn main() -> Result<(), Error> {
                 .setup_clap_app()
                 .default_subcommand_opts(),
         )
+        .subcommand(
+            Leader::sub_command()
+                .setup_clap_app()
+                .default_subcommand_opts(),
+        )
         .get_matches();
 
     let mut runtime = runtime::Builder::new()
@@ -72,7 +79,8 @@ fn main() -> Result<(), Error> {
     runtime.block_on(async move {
         match args.subcommand() {
             (procs::INIT, Some(args)) => init(args).await,
-            (Logger::NAME, Some(args)) => run::<Logger>(args).await,
+            (Logger::NAME, Some(args)) => run::<Logger, Read>(args).await,
+            (Leader::NAME, Some(args)) => run::<Leader, Write>(args).await,
             ("", None) => {
                 println!("command required");
                 println!("{}", args.usage());
@@ -88,14 +96,26 @@ fn main() -> Result<(), Error> {
 }
 
 async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
-    // start the logger first
-    let logger = new_process(Logger).expect("failed to start logger");
+    // Start the logger first
+    let mut logger = new_process(Logger).expect("failed to start logger");
+    let mut logger_control = logger
+        .take_control()
+        .expect("no control")
+        .into_async_pipe_end()?;
+
+    // Now that we have the logger, we can start all the other processes and hand over their output handles
+    //
+    // Start the Leader, we need a control output to for the IPC from that to use
+    let mut leader = new_process(Leader).expect("failed to start the leader");
+    let stdout: ChildStdout = leader.stdout().expect("no stdout from leader");
+
+    msg::send_fd(&mut logger_control, stdout)
+        .await
+        .expect("failed to send leader fd to logger");
 
     let pipe = Pipe::new().expect("failed to create pipe");
 
     let (reader, writer) = pipe.split();
-
-    let mut logger_control = logger.control.into_async_pipe_end()?;
     msg::send_fd(&mut logger_control, reader)
         .await
         .expect("failed to send filedescriptor");
@@ -104,9 +124,14 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
         .into_async_pipe_end()
         .expect("failed to get UnixStream");
     writer
-        .write_all(b"Vemilion say hello to logger")
+        .write_all(b"Vemilion says hello to logger\n")
         .await
         .expect("failed to write");
+    writer
+        .write_all(b"You're cool logger\n")
+        .await
+        .expect("failed to write");
+    drop(writer);
 
     // let (leader_read, leader_write) = pipe().expect("failed to create leader");
     // let (logger_read, logger_write) = pipe().expect("failed to create pipe for logger");
@@ -116,20 +141,24 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
     println!("vermilion started");
 
     println!(
-        "child exited: {}",
-        logger.child.await.expect("logger failed")
+        "leader exited: {}",
+        leader.wait().await.expect("logger failed")
+    );
+    println!(
+        "logger exited: {}",
+        logger.wait().await.expect("logger failed")
     );
 
     Err(Error::from("VermilionRC exited"))
 }
 
-async fn run<P: Process>(args: &ArgMatches<'_>) -> Result<(), Error> {
+async fn run<P: Process<E>, E: End>(args: &ArgMatches<'_>) -> Result<(), Error> {
     let ctl_in = args
         .value_of_lossy(procs::CONTROL_IN)
         .expect("control-in not specified");
 
     let fd = i32::from_str_radix(&ctl_in, 10).expect("control-in is not a number");
-    let ctl = unsafe { CtlEnd::<P::Direction>::from_raw_fd(fd) };
+    let ctl = unsafe { CtlEnd::<E>::from_raw_fd(fd) };
 
     println!("Running {}", P::NAME);
     P::run(ctl.into_async_pipe_end()?).await;

@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::os::unix::io::{FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::pin::Pin;
 use std::task::Poll;
 
@@ -23,11 +23,13 @@ enum MessageType {
     WritePipeEnd,
 }
 
-pub async fn send_fd<E: End>(
+pub async fn send_fd<R: AsRawFd>(
     target: &mut AsyncCtlEnd<Write>,
-    fd_to_send: PipeEnd<E>,
+    fd_to_send_1: R,
 ) -> Result<(), Error> {
-    let fd_to_send = &[fd_to_send.into_raw_fd()];
+    let fd_to_send = &[fd_to_send_1.as_raw_fd()];
+    std::mem::forget(fd_to_send_1);
+
     let mut target = Pin::new(target);
     let target = &mut target;
 

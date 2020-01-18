@@ -22,15 +22,21 @@ pub struct Write;
 
 // A marker trait to designate the end of the pipe this represents
 pub trait End: Clone + Copy + Debug {
+    type Reverse: End;
+
     fn display() -> &'static str;
 }
 
 impl End for Read {
+    type Reverse = Write;
+
     fn display() -> &'static str {
         "Read"
     }
 }
 impl End for Write {
+    type Reverse = Read;
+
     fn display() -> &'static str {
         "Write"
     }

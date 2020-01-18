@@ -11,7 +11,7 @@ mod logger;
 mod supervisor;
 
 pub use ipc::Ipc;
-pub use leader::leader;
+pub use leader::Leader;
 pub use logger::Logger;
 pub use supervisor::supervisor;
 
@@ -20,21 +20,25 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use clap::App;
 
-use crate::control::AsyncCtlEnd;
+use crate::control::{AsyncCtlEnd, CtlEnd};
 use crate::fork::StdIoConf;
-use crate::pipe::End;
+use crate::pipe::{End, Read, Write};
 
 pub const CONTROL_IN: &str = "control-in";
 pub const INIT: &str = "init";
 
+/// A trait to define common construction of a process
+///
+/// ## Type Parameters
+///
+/// * D - Direction of Control, if the Leader this would be Write, all others would be Read
 #[async_trait]
-pub trait Process: Send + 'static {
+pub trait Process<D: End>: Sized + Send + 'static {
     const NAME: &'static str;
-    type Direction: End;
 
     fn sub_command() -> App<'static, 'static>;
 
-    async fn run(control: AsyncCtlEnd<Self::Direction>);
+    async fn run(control: AsyncCtlEnd<D>);
 
     fn get_stdio() -> StdIoConf {
         StdIoConf {
@@ -42,5 +46,23 @@ pub trait Process: Send + 'static {
             stderr: Stdio::piped(),
             stdout: Stdio::piped(),
         }
+    }
+}
+
+pub trait FlipControl<E: End> {
+    fn flip(read: CtlEnd<Read>, write: CtlEnd<Write>) -> (CtlEnd<E>, CtlEnd<E::Reverse>);
+}
+
+/// For read flip is a noop
+impl FlipControl<Read> for Read {
+    fn flip(read: CtlEnd<Read>, write: CtlEnd<Write>) -> (CtlEnd<Read>, CtlEnd<Write>) {
+        (read, write)
+    }
+}
+
+/// For write flip reverse the control
+impl FlipControl<Write> for Write {
+    fn flip(read: CtlEnd<Read>, write: CtlEnd<Write>) -> (CtlEnd<Write>, CtlEnd<Read>) {
+        (write, read)
     }
 }
