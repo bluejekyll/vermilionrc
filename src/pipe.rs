@@ -6,14 +6,20 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::fmt::Debug;
+use std::io;
 use std::marker::PhantomData;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use nix::unistd::{close, dup2, pipe as nix_pipe};
+use futures::ready;
+use mio;
+use mio::event::Evented;
+use mio::unix::EventedFd;
+use nix::unistd::{close, dup2, pipe as nix_pipe, read as nix_read, write as nix_write};
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::PollEvented;
+use tokio::io::{AsyncRead, AsyncWrite, ErrorKind};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Read;
@@ -102,10 +108,14 @@ impl<E: End> PipeEnd<E> {
 
     pub fn into_async_pipe_end(self) -> nix::Result<AsyncPipeEnd<E>> {
         let fd = self.into_raw_fd();
-        // this is safe since we are passing ownership from self to the new UnixStream
-        let stream = unsafe { File::from_std(std::fs::File::from_raw_fd(fd)) };
 
-        Ok(AsyncPipeEnd::from_file(stream))
+        use nix::fcntl::{fcntl, OFlag, FcntlArg};
+
+        // set the FD as non-blocking
+        assert_eq!(fcntl(fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap(), 0);
+
+        // this is safe since we are passing ownership from self to the new UnixStream
+        unsafe { AsyncPipeEnd::from_raw_fd(fd) }
     }
 }
 
@@ -159,6 +169,13 @@ pub struct Pipe {
 
 impl Pipe {
     pub(crate) unsafe fn from_raw_fd(read: RawFd, write: RawFd) -> Self {
+        use nix::fcntl::{fcntl, OFlag, FcntlArg};
+
+        // set the FD as non-blocking
+        assert_eq!(fcntl(read, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap(), 0);
+        // set the FD as non-blocking
+        assert_eq!(fcntl(write, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap(), 0);
+
         Self {
             read: PipeEnd::from_raw_fd(read),
             write: PipeEnd::from_raw_fd(write),
@@ -170,7 +187,14 @@ impl Pipe {
     /// This should be converted to the specific end desired, i.e. read() will close write() implicitly.
     ///   it's expected that this is created before forking, and then used after forking.
     pub fn new() -> nix::Result<Self> {
+        use nix::fcntl::{fcntl, FcntlArg, OFlag};
+
         let (read, write) = nix_pipe()?;
+
+        // set the FD as non-blocking
+        assert_eq!(fcntl(read, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap(), 0);
+        // set the FD as non-blocking
+        assert_eq!(fcntl(write, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap(), 0);
 
         println!("created pipe, read: {} write: {}", read, write);
 
@@ -200,16 +224,58 @@ impl Pipe {
 }
 
 pub struct AsyncPipeEnd<E: End> {
-    stream: File,
+    fd: RawFd,
     ghost: PhantomData<E>,
 }
 
 impl<E: End> AsyncPipeEnd<E> {
-    pub fn from_file(stream: File) -> Self {
-        Self {
-            stream,
+    pub unsafe fn from_raw_fd(fd: RawFd) -> nix::Result<Self> {
+        use nix::fcntl::fcntl;
+        use nix::fcntl::FcntlArg;
+        use nix::fcntl::OFlag;
+
+        // set the FD as non-blocking
+        assert_eq!(fcntl(fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?, 0);
+
+        Ok(Self {
+            fd,
             ghost: PhantomData,
-        }
+        })
+    }
+}
+
+impl<'s, E: End> Evented for &'s mut AsyncPipeEnd<E> {
+    fn register(
+        &self,
+        poll: &mio::Poll,
+        token: mio::Token,
+        interest: mio::Ready,
+        opts: mio::PollOpt,
+    ) -> io::Result<()> {
+        EventedFd(&self.fd).register(poll, token, interest, opts)
+    }
+
+    fn reregister(
+        &self,
+        poll: &mio::Poll,
+        token: mio::Token,
+        interest: mio::Ready,
+        opts: mio::PollOpt,
+    ) -> io::Result<()> {
+        EventedFd(&self.fd).reregister(poll, token, interest, opts)
+    }
+
+    fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
+        EventedFd(&self.fd).deregister(poll)
+    }
+}
+
+impl<'s> io::Read for &'s mut AsyncPipeEnd<Read> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
+        nix_read(self.fd, buf).map_err(|e| match e.as_errno() {
+            Some(errno) => dbg!(errno.into()),
+            _ => io::Error::new(io::ErrorKind::Other, "unknown nix error"),
+        })
     }
 }
 
@@ -219,8 +285,27 @@ impl AsyncRead for AsyncPipeEnd<Read> {
         cx: &mut Context,
         buf: &mut [u8],
     ) -> Poll<tokio::io::Result<usize>> {
-        let pin = Pin::new(&mut self.stream);
-        pin.poll_read(cx, buf)
+        // this is safe since we are passing ownership from self to the new UnixStream
+        // this is safe since we are passing ownership from self to the new UnixStream
+        let mut evented = PollEvented::new(self.get_mut())?;
+
+        let pin = Pin::new(&mut evented);
+        dbg!(pin.poll_read(cx, buf))
+    }
+}
+
+impl<'s> io::Write for &'s mut AsyncPipeEnd<Write> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+        nix_write(self.fd, buf).map_err(|e| match e.as_errno() {
+            Some(errno) => errno.into(),
+            _ => io::Error::new(io::ErrorKind::Other, "unknown nix error"),
+        })
+    }
+
+    fn flush(&mut self) -> Result<(), io::Error> {
+        // FIXME: nix doesn't have flush???
+        //nix_flush(self.fd).map(Into::into)
+        Ok(())
     }
 }
 
@@ -230,17 +315,26 @@ impl AsyncWrite for AsyncPipeEnd<Write> {
         cx: &mut Context,
         buf: &[u8],
     ) -> Poll<tokio::io::Result<usize>> {
-        let pin = Pin::new(&mut self.stream);
-        pin.poll_write(cx, buf)
+        // this is safe since we are passing ownership from self to the new UnixStream
+        let mut evented = PollEvented::new(self.get_mut())?;
+
+        let pin = Pin::new(&mut evented);
+        dbg!(pin.poll_write(cx, buf))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<tokio::io::Result<()>> {
-        let pin = Pin::new(&mut self.stream);
+        // this is safe since we are passing ownership from self to the new UnixStream
+        let mut evented = PollEvented::new(self.get_mut())?;
+
+        let pin = Pin::new(&mut evented);
         pin.poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<tokio::io::Result<()>> {
-        let pin = Pin::new(&mut self.stream);
+        // this is safe since we are passing ownership from self to the new UnixStream
+        let mut evented = PollEvented::new(self.get_mut())?;
+
+        let pin = Pin::new(&mut evented);
         pin.poll_shutdown(cx)
     }
 }
