@@ -70,6 +70,7 @@ impl Process<Read> for Logger {
 }
 
 async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>) {
+    use tokio::io::ErrorKind;
     let mut lines = BufReader::with_capacity(1_024, reader).lines();
 
     // read until EOF, or there's an error
@@ -78,8 +79,11 @@ async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>) {
             // FIXME: need the PID, of the process here.
             Ok(Some(line)) => println!("LOG: {}", line),
             Ok(None) => break,
-            // FIXME: turn into a trace
-            Err(e) => println!("LOG error: {}", e),
+            Err(e) => match e.kind() {
+                // something odd here... 
+                ErrorKind::WouldBlock => println!("LOG: WOULD_BLOCK"),
+                _ => eprintln!("LOG: error reading from pipe for pid {}: {}", "?FIXME?", e),
+            }
         }
     }
 
