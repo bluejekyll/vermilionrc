@@ -34,20 +34,20 @@ impl Process<Read> for Logger {
     }
 
     async fn run(mut control: AsyncCtlEnd<Read>) {
-        println!("Logger started");
+        println!("Logger: started");
 
         loop {
             let fd = msg::recv_msg(&mut control).await;
             let fd = match fd {
                 Ok(fd) => fd,
                 Err(e) => {
-                    eprintln!("error receiving file descriptor");
+                    eprintln!("Logger: error receiving file descriptor");
                     continue;
                 }
             };
 
             // ok we got a file descriptor. Now we will spawn a background task to listen for log messages from it
-            eprintln!("received filedescriptor: {:?}", fd);
+            eprintln!("Logger: received filedescriptor: {:?}", fd);
 
             let reader = fd
                 .into_async_pipe_end()
@@ -80,10 +80,10 @@ async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>) {
             Ok(Some(line)) => println!("LOG: {}", line),
             Ok(None) => break,
             Err(e) => match e.kind() {
-                // something odd here... 
+                // something odd here...
                 ErrorKind::WouldBlock => println!("LOG: WOULD_BLOCK"),
                 _ => eprintln!("LOG: error reading from pipe for pid {}: {}", "?FIXME?", e),
-            }
+            },
         }
     }
 
