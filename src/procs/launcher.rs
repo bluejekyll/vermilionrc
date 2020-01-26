@@ -5,6 +5,18 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::process::Stdio;
+
+use async_trait::async_trait;
+use clap::{App, ArgMatches, SubCommand};
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+use crate::control::AsyncCtlEnd;
+use crate::fork::StdIoConf;
+use crate::msg::Message;
+use crate::pipe::{AsyncPipeEnd, Read};
+use crate::procs::Process;
+
 /// Launch programs
 ///
 /// Rules:
@@ -12,4 +24,34 @@
 /// - only listen to messages from IPC
 ///   - verify messages are from the leader?
 /// - read configuration file for process to launch.
-pub fn launcher() {}
+#[derive(Debug)]
+pub struct Launcher;
+
+#[async_trait]
+impl Process<Read> for Launcher {
+    const NAME: &'static str = "launcher";
+
+    fn sub_command() -> App<'static, 'static> {
+        SubCommand::with_name(Self::NAME).about("Process launcher for Vermilion")
+    }
+
+    async fn run(control: AsyncCtlEnd<Read>, args: &ArgMatches<'_>) {
+        println!("Launcher started");
+
+        for i in 0..60 {
+            println!("{} awaiting input: {}", Launcher::NAME, i);
+            std::thread::sleep(std::time::Duration::from_secs(1))
+        }
+    }
+
+    fn get_stdio() -> StdIoConf {
+        StdIoConf {
+            // The leader will capture the primary stdin
+            stdin: Stdio::inherit(),
+            // the leader will pipe it's output, eventually to the logger
+            stderr: Stdio::piped(),
+            // the leader will pipe it's output, eventually to the logger
+            stdout: Stdio::piped(),
+        }
+    }
+}

@@ -6,19 +6,21 @@
 // copied, modified, or distributed except according to those terms.
 
 mod ipc;
+mod launcher;
 mod leader;
 mod logger;
 mod supervisor;
 
 pub use ipc::Ipc;
+pub use launcher::Launcher;
 pub use leader::Leader;
 pub use logger::Logger;
-pub use supervisor::supervisor;
+pub use supervisor::Supervisor;
 
 use std::process::Stdio;
 
 use async_trait::async_trait;
-use clap::App;
+use clap::{App, ArgMatches};
 
 use crate::control::{AsyncCtlEnd, CtlEnd};
 use crate::fork::StdIoConf;
@@ -38,7 +40,7 @@ pub trait Process<D: End>: Sized + Send + 'static {
 
     fn sub_command() -> App<'static, 'static>;
 
-    async fn run(control: AsyncCtlEnd<D>);
+    async fn run(control: AsyncCtlEnd<D>, args: &ArgMatches<'_>);
 
     fn get_stdio() -> StdIoConf {
         StdIoConf {

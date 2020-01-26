@@ -9,15 +9,17 @@ use std::ffi::OsString;
 use std::os::unix::io::FromRawFd;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
+use futures::future::FutureExt;
+use futures::select;
 use tokio::io::AsyncWriteExt;
-use tokio::process::ChildStdout;
+use tokio::process::{ChildStderr, ChildStdout};
 use tokio::runtime;
 
-use vermilionrc::control::CtlEnd;
-use vermilionrc::fork::new_process;
-use vermilionrc::msg::Message;
-use vermilionrc::pipe::{End, Pipe, Read, Write};
-use vermilionrc::procs::{self, Leader, Logger, Process};
+use vermilionrc::control::{AsyncCtlEnd, CtlEnd};
+use vermilionrc::fork::{new_process, Child};
+use vermilionrc::msg::{Message, ToMessageKind};
+use vermilionrc::pipe::{End, Pipe, PipeEnd, Read, Write};
+use vermilionrc::procs::{self, Ipc, Launcher, Leader, Logger, Process, Supervisor};
 use vermilionrc::Error;
 
 trait SetupClapApp {
@@ -58,12 +60,27 @@ fn main() -> Result<(), Error> {
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .subcommand(init_sub_command().setup_clap_app())
         .subcommand(
+            Leader::sub_command()
+                .setup_clap_app()
+                .default_subcommand_opts(),
+        )
+        .subcommand(
             Logger::sub_command()
                 .setup_clap_app()
                 .default_subcommand_opts(),
         )
         .subcommand(
-            Leader::sub_command()
+            Launcher::sub_command()
+                .setup_clap_app()
+                .default_subcommand_opts(),
+        )
+        .subcommand(
+            Ipc::sub_command()
+                .setup_clap_app()
+                .default_subcommand_opts(),
+        )
+        .subcommand(
+            Supervisor::sub_command()
                 .setup_clap_app()
                 .default_subcommand_opts(),
         )
@@ -78,8 +95,11 @@ fn main() -> Result<(), Error> {
     runtime.block_on(async move {
         match args.subcommand() {
             (procs::INIT, Some(args)) => init(args).await,
-            (Logger::NAME, Some(args)) => run::<Logger, Read>(args).await,
             (Leader::NAME, Some(args)) => run::<Leader, Write>(args).await,
+            (Logger::NAME, Some(args)) => run::<Logger, Read>(args).await,
+            (Launcher::NAME, Some(args)) => run::<Launcher, Read>(args).await,
+            (Ipc::NAME, Some(args)) => run::<Ipc, Read>(args).await,
+            (Supervisor::NAME, Some(args)) => run::<Supervisor, Read>(args).await,
             ("", None) => {
                 println!("command required");
                 println!("{}", args.usage());
@@ -95,7 +115,7 @@ fn main() -> Result<(), Error> {
 }
 
 async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
-    // Start the logger first
+    // Start the logger first, as it will receive all stdouts and stderrs from other processes
     let mut logger = new_process(Logger).expect("failed to start logger");
     let mut logger_control = logger
         .take_control()
@@ -106,15 +126,23 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
     //
     // Start the Leader, we need a control output to for the IPC from that to use
     let mut leader = new_process(Leader).expect("failed to start the leader");
-    let stdout: ChildStdout = leader.stdout().expect("no stdout from leader");
-
-    Message::<Read>::prepare_fd(stdout)
-        .send_msg(&mut logger_control)
+    send_output_to_logger(&mut leader, &mut logger_control)
         .await
-        .expect("failed to send leader fd to logger");
+        .expect("failed to send output to logger for leader");
+
+    // Start the Launcher which will give us the ability to spawn processes
+    let mut launcher = new_process(Launcher).expect("failed to start the launcher");
+    send_output_to_logger(&mut launcher, &mut logger_control)
+        .await
+        .expect("failed to send output to logger for launcher");
+
+    // Ipc couldn't be started
+    let mut ipc = new_process(Ipc).expect("failed to start the Ipc");
+    send_output_to_logger(&mut ipc, &mut logger_control)
+        .await
+        .expect("failed to send output to logger for ipc");
 
     let pipe = Pipe::new().expect("failed to create pipe");
-
     let (reader, writer) = pipe.split();
 
     Message::<Read>::prepare_fd(reader)
@@ -135,23 +163,18 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
         .expect("failed to write");
     drop(writer);
 
-    // let (leader_read, leader_write) = pipe().expect("failed to create leader");
-    // let (logger_read, logger_write) = pipe().expect("failed to create pipe for logger");
-    // let (ipc_read, ipc_write) = pipe().expect("failed to create pipe for ipc");
-    // let (launcher_read, launcher_write) = pipe().expect("failed to create pipe for launcher");
-
     println!("vermilion started");
 
-    println!(
-        "leader exited: {}",
-        leader.wait().await.expect("logger failed")
-    );
-    println!(
-        "logger exited: {}",
-        logger.wait().await.expect("logger failed")
-    );
+    // ensure that all processes continue to run
+    let msg = select! {
+        err = leader.wait().fuse() => format!("Leader unexpectedly exited: {:?}", err),
+        err = logger.wait().fuse() => format!("Logger unexpectedly exited: {:?}", err),
+        err = launcher.wait().fuse() => format!("Launcher unexpectedly exited: {:?}", err),
+        err = ipc.wait().fuse() => format!("Ipc unexpectedly exited: {:?}", err),
+        complete => format!("All Vermilion processes completed unexpectedly"),
+    };
 
-    Err(Error::from("VermilionRC exited"))
+    Err(Error::from(format!("VermilionRC exited: {}", msg)))
 }
 
 async fn run<P: Process<E>, E: End>(args: &ArgMatches<'_>) -> Result<(), Error> {
@@ -163,7 +186,25 @@ async fn run<P: Process<E>, E: End>(args: &ArgMatches<'_>) -> Result<(), Error> 
     let ctl = unsafe { CtlEnd::<E>::from_raw_fd(fd) };
 
     println!("Running {}", P::NAME);
-    P::run(ctl.into_async_pipe_end()?).await;
+    P::run(ctl.into_async_pipe_end()?, args).await;
 
     Err(Error::from("Process unexpected ended"))
+}
+
+async fn send_output_to_logger<E: End + ToMessageKind>(
+    child: &mut Child<E>,
+    logger_ctl: &mut AsyncCtlEnd<Write>,
+) -> Result<(), crate::Error> {
+    let out: ChildStdout = child
+        .take_stdout()
+        .ok_or_else(|| Error::from("no stdout available"))?;
+    Message::<Read>::prepare_fd(out)
+        .send_msg(logger_ctl)
+        .await?;
+
+    let out: ChildStderr = child
+        .take_stderr()
+        .ok_or_else(|| Error::from("no stdout available"))?;
+
+    Message::<Read>::prepare_fd(out).send_msg(logger_ctl).await
 }

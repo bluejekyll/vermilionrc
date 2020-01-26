@@ -10,8 +10,8 @@ use std::os::unix::io::RawFd;
 use std::process::ExitStatus;
 use std::process::Stdio;
 
-use tokio::process::ChildStdout;
 use tokio::process::Command;
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 
 use crate::control::{Control, CtlEnd};
 use crate::pipe::End;
@@ -39,8 +39,16 @@ pub struct Child<E: End> {
 }
 
 impl<E: End> Child<E> {
-    pub fn stdout(&mut self) -> Option<ChildStdout> {
+    pub fn take_stdout(&mut self) -> Option<ChildStdout> {
         self.child.stdout.take()
+    }
+
+    pub fn take_stderr(&mut self) -> Option<ChildStderr> {
+        self.child.stderr.take()
+    }
+
+    pub fn take_stdin(&mut self) -> Option<ChildStdin> {
+        self.child.stdin.take()
     }
 
     pub fn take_control(&mut self) -> Option<CtlEnd<E>> {
@@ -75,7 +83,12 @@ where
         .map_err(|_| "failed to spawn process")?;
 
     let control = ctl_output;
-    println!("started child process control: {:?}", control);
+    println!(
+        "Started {} process ({}) control: {:?}",
+        P::NAME,
+        child.id(),
+        control
+    );
 
     Ok(Child {
         child,

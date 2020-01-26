@@ -8,7 +8,7 @@
 use std::process::Stdio;
 
 use async_trait::async_trait;
-use clap::{App, SubCommand};
+use clap::{App, ArgMatches, SubCommand};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::control::AsyncCtlEnd;
@@ -30,10 +30,11 @@ impl Process<Read> for Logger {
     const NAME: &'static str = "logger";
 
     fn sub_command() -> App<'static, 'static> {
-        SubCommand::with_name(Self::NAME).about("Logger for the VermilionRC framework")
+        SubCommand::with_name(Self::NAME)
+            .about("Common logger for all processes under vermilion management")
     }
 
-    async fn run(mut control: AsyncCtlEnd<Read>) {
+    async fn run(mut control: AsyncCtlEnd<Read>, args: &ArgMatches<'_>) {
         println!("Logger: started");
 
         loop {
@@ -47,6 +48,8 @@ impl Process<Read> for Logger {
                 }
             };
 
+            let pid = msg.pid();
+
             let fd = msg.take_pipe().expect("take_pipe fails");
             println!("received filedescriptor: {:?}", fd);
 
@@ -57,7 +60,7 @@ impl Process<Read> for Logger {
                 .into_async_pipe_end()
                 .expect("could not make async pipe end");
 
-            tokio::spawn(print_messages_to_stdout(reader));
+            tokio::spawn(print_messages_to_stdout(reader, pid));
         }
     }
 
@@ -73,7 +76,7 @@ impl Process<Read> for Logger {
     }
 }
 
-async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>) {
+async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>, pid: libc::pid_t) {
     use tokio::io::ErrorKind;
     let mut lines = BufReader::with_capacity(1_024, reader).lines();
 
@@ -81,16 +84,16 @@ async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>) {
     loop {
         match lines.next_line().await {
             // FIXME: need the PID, of the process here.
-            Ok(Some(line)) => println!("LOG: {}", line),
+            Ok(Some(line)) => println!("{} LOG: {}", pid, line),
             Ok(None) => break,
             Err(e) => match e.kind() {
                 // something odd here...
                 ErrorKind::WouldBlock => println!("LOG: WOULD_BLOCK"),
-                _ => eprintln!("LOG: error reading from pipe for pid {}: {}", "?FIXME?", e),
+                _ => eprintln!("{} LOG: error reading from pipe: {}", pid, e),
             },
         }
     }
 
     // FIXME: need a PID here
-    println!("LOGGING SHUTDOWN for pid: ?FIXME?");
+    println!("{} LOGGING SHUTDOWN", pid);
 }

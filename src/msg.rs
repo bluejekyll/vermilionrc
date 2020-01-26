@@ -26,6 +26,22 @@ pub enum MessageKind {
     WritePipeEnd,
 }
 
+pub trait ToMessageKind {
+    fn to_message_kind() -> MessageKind;
+}
+
+impl ToMessageKind for Read {
+    fn to_message_kind() -> MessageKind {
+        MessageKind::ReadPipeEnd
+    }
+}
+
+impl ToMessageKind for Write {
+    fn to_message_kind() -> MessageKind {
+        MessageKind::WritePipeEnd
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MessageData {
     kind: MessageKind,
@@ -38,15 +54,9 @@ pub struct Message<E: End> {
     pipe: Option<PipeEnd<E>>,
 }
 
-impl Message<Read> {
-    pub fn prepare_fd<P: Into<PipeEnd<Read>>>(pipe: P) -> Self {
-        Self::prepare_fd_message(pipe.into(), MessageKind::ReadPipeEnd)
-    }
-}
-
-impl Message<Write> {
-    pub fn prepare_fd<P: Into<PipeEnd<Write>>>(pipe: P) -> Self {
-        Self::prepare_fd_message(pipe.into(), MessageKind::WritePipeEnd)
+impl<E: End + ToMessageKind> Message<E> {
+    pub fn prepare_fd<P: Into<PipeEnd<E>>>(pipe: P) -> Self {
+        Self::prepare_fd_message(pipe.into(), E::to_message_kind())
     }
 }
 
@@ -62,6 +72,10 @@ impl<E: End> Message<E> {
 
     pub fn take_pipe(&mut self) -> Option<PipeEnd<E>> {
         self.pipe.take()
+    }
+
+    pub fn pid(&self) -> libc::pid_t {
+        self.data.source
     }
 
     pub async fn send_msg(mut self, target: &mut AsyncCtlEnd<Write>) -> Result<(), Error> {
