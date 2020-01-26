@@ -5,12 +5,14 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ErrorKind {
-    #[error("io error")]
+    #[error("io error: {0}")]
     IoError(#[from] io::Error),
-    #[error("nix error")]
+    #[error("nix error: {0}")]
     NixError(#[from] nix::Error),
     // #[error("tokio error")]
     // TokioError(#[from] tokio::io::Error),
+    #[error("could not encode data: {0}")]
+    BinCodeError(#[from] Box<bincode::ErrorKind>),
     #[error("an error occured: {0}")]
     ErrorMsg(String),
     #[error("an error occured: {0}")]

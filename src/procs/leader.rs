@@ -9,7 +9,6 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use clap::{App, SubCommand};
-use tokio::io::AsyncReadExt;
 
 use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
@@ -34,11 +33,16 @@ impl Process<Write> for Leader {
         SubCommand::with_name(Self::NAME).about("Leader for the VermilionRC framework")
     }
 
-    async fn run(mut control: AsyncCtlEnd<Write>) {
+    async fn run(control: AsyncCtlEnd<Write>) {
         println!("Leader started");
         eprintln!("Leader seriously started");
 
-        std::process::exit(8);
+        let mut iteration = 0;
+        loop {
+            println!("leader awaiting input: {}", iteration);
+            iteration += 1;
+            std::thread::sleep(std::time::Duration::from_secs(1))
+        }
     }
 
     fn get_stdio() -> StdIoConf {

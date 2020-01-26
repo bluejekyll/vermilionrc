@@ -9,14 +9,13 @@ use std::ffi::OsString;
 use std::os::unix::io::FromRawFd;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use futures::select;
 use tokio::io::AsyncWriteExt;
 use tokio::process::ChildStdout;
 use tokio::runtime;
 
 use vermilionrc::control::CtlEnd;
 use vermilionrc::fork::new_process;
-use vermilionrc::msg;
+use vermilionrc::msg::Message;
 use vermilionrc::pipe::{End, Pipe, Read, Write};
 use vermilionrc::procs::{self, Leader, Logger, Process};
 use vermilionrc::Error;
@@ -109,16 +108,19 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
     let mut leader = new_process(Leader).expect("failed to start the leader");
     let stdout: ChildStdout = leader.stdout().expect("no stdout from leader");
 
-    msg::send_fd(&mut logger_control, stdout)
+    Message::<Read>::prepare_fd(stdout)
+        .send_msg(&mut logger_control)
         .await
         .expect("failed to send leader fd to logger");
 
     let pipe = Pipe::new().expect("failed to create pipe");
 
     let (reader, writer) = pipe.split();
-    msg::send_fd(&mut logger_control, reader)
+
+    Message::<Read>::prepare_fd(reader)
+        .send_msg(&mut logger_control)
         .await
-        .expect("failed to send filedescriptor");
+        .expect("failed to send leader fd to logger");
 
     let mut writer = writer
         .into_async_pipe_end()

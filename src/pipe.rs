@@ -8,18 +8,18 @@
 use std::fmt::Debug;
 use std::io;
 use std::marker::PhantomData;
+use std::mem;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::ready;
 use mio;
 use mio::event::Evented;
 use mio::unix::EventedFd;
 use nix::unistd::{close, dup2, pipe as nix_pipe, read as nix_read, write as nix_write};
-use tokio::fs::File;
 use tokio::io::PollEvented;
-use tokio::io::{AsyncRead, AsyncWrite, ErrorKind};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::process::ChildStdout;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Read;
@@ -207,6 +207,14 @@ impl io::Write for PipeEnd<Write> {
         // FIXME: nix doesn't have flush???
         //nix_flush(self.fd).map(Into::into)
         Ok(())
+    }
+}
+
+impl From<ChildStdout> for PipeEnd<Read> {
+    fn from(stdout: ChildStdout) -> Self {
+        let raw_fd = stdout.as_raw_fd();
+        mem::forget(stdout);
+        unsafe { PipeEnd::from_raw_fd(raw_fd) }
     }
 }
 

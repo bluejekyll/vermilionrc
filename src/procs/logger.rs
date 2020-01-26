@@ -9,11 +9,11 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use clap::{App, SubCommand};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
-use crate::msg;
+use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
 use crate::procs::Process;
 
@@ -37,14 +37,18 @@ impl Process<Read> for Logger {
         println!("Logger: started");
 
         loop {
-            let fd = msg::recv_msg(&mut control).await;
-            let fd = match fd {
-                Ok(fd) => fd,
+            let msg = Message::recv_msg(&mut control).await;
+
+            let mut msg: Message<Read> = match msg {
+                Ok(msg) => msg,
                 Err(e) => {
-                    eprintln!("Logger: error receiving file descriptor");
+                    eprintln!("Logger: error receiving message");
                     continue;
                 }
             };
+
+            let fd = msg.take_pipe().expect("take_pipe fails");
+            println!("received filedescriptor: {:?}", fd);
 
             // ok we got a file descriptor. Now we will spawn a background task to listen for log messages from it
             eprintln!("Logger: received filedescriptor: {:?}", fd);

@@ -10,16 +10,14 @@ use std::os::unix::io::RawFd;
 use std::process::ExitStatus;
 use std::process::Stdio;
 
-use nix::unistd::dup2;
 use tokio::process::ChildStdout;
 use tokio::process::Command;
 
 use crate::control::{Control, CtlEnd};
-use crate::pipe::{End, Write};
+use crate::pipe::End;
 use crate::procs::{self, FlipControl, Process};
 use crate::Error;
 
-pub(crate) const NULL: RawFd = -1;
 pub const STDIN: RawFd = 0; // Control In
 pub const STDOUT: RawFd = 1; // stdout Out
 pub const STDERR: RawFd = 2; // Control Out

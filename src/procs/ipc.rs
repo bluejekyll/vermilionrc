@@ -13,7 +13,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
-use crate::msg;
+use crate::msg::Message;
 use crate::pipe::Read;
 use crate::procs::Process;
 
@@ -42,8 +42,11 @@ impl Process<Read> for Ipc {
     async fn run(mut control: AsyncCtlEnd<Read>) {
         println!("Ipc started");
 
-        let fd = msg::recv_msg(&mut control).await.expect("no msg received");
+        let mut message = Message::recv_msg(&mut control)
+            .await
+            .expect("no msg received");
 
+        let fd = message.take_pipe().expect("take_pipe fails");
         println!("received filedescriptor: {:?}", fd);
 
         let mut reader = fd
@@ -54,8 +57,6 @@ impl Process<Read> for Ipc {
         let len = reader.read(&mut buf).await.expect("failed to read");
         let line = String::from_utf8_lossy(&buf[..len]);
         println!("LOG_LINE: {}", line);
-
-        ()
     }
 
     fn get_stdio() -> StdIoConf {
