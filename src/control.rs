@@ -89,7 +89,12 @@ impl<E: End> Drop for CtlEnd<E> {
             _ => (),
         }
 
-        println!("closing fd: {} ({})", self.raw_fd, E::display());
+        println!(
+            "{} closing fd: {} ({})",
+            nix::unistd::Pid::this(),
+            self.raw_fd,
+            E::display()
+        );
 
         // TODO: need the logger...
         close(self.raw_fd)
