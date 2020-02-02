@@ -14,7 +14,7 @@ use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg;
 use crate::pipe::Write;
-use crate::procs::Process;
+use crate::procs::{HasCtlOut, NoCtlIn, Process};
 
 /// Issue commands to the Launcher
 ///
@@ -26,14 +26,14 @@ use crate::procs::Process;
 pub struct Leader;
 
 #[async_trait]
-impl Process<Write> for Leader {
+impl Process<NoCtlIn, HasCtlOut> for Leader {
     const NAME: &'static str = "leader";
 
-    fn sub_command() -> App<'static, 'static> {
+    fn inner_sub_command() -> App<'static, 'static> {
         SubCommand::with_name(Self::NAME).about("Controller for issuing instructions to Vermilion")
     }
 
-    async fn run(control: AsyncCtlEnd<Write>, args: &ArgMatches<'_>) {
+    async fn run(args: &ArgMatches<'_>) {
         println!("Leader started");
         eprintln!("Leader seriously started");
 

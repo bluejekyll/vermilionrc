@@ -15,7 +15,7 @@ use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::Read;
-use crate::procs::Process;
+use crate::procs::{CtlIn, CtlOut, HasCtlIn, HasCtlOut, Process};
 
 /// Inter-process-communucation service.
 ///
@@ -30,31 +30,22 @@ use crate::procs::Process;
 pub struct Ipc;
 
 #[async_trait]
-impl Process<Read> for Ipc {
+impl Process<HasCtlIn, HasCtlOut> for Ipc {
     const NAME: &'static str = "ipc";
 
     /// CLI SubCommand arguments
-    fn sub_command() -> App<'static, 'static> {
+    fn inner_sub_command() -> App<'static, 'static> {
         SubCommand::with_name(Self::NAME)
             .about("Inter-process communication for Vermilion processes")
-        // .arg(
-        //     Arg::with_name(procs::CONTROL_IN)
-        //         .short("c")
-        //         .long(procs::CONTROL_IN)
-        //         .value_name("NUMBER")
-        //         .validator_os(|i| {
-        //             i32::from_str_radix(&i.to_string_lossy(), 10)
-        //                 .map(|_| ())
-        //                 .map_err(|_| OsString::from("number was expected"))
-        //         })
-        //         .help("control input filedescriptor (used when forking the process)")
-        //         .takes_value(true),
-        // )
     }
 
     /// This should be the ctl in port from the leader
-    async fn run(mut control: AsyncCtlEnd<Read>, args: &ArgMatches<'_>) {
+    async fn run(args: &ArgMatches<'_>) {
         println!("Ipc started");
+
+        let mut control = HasCtlIn::get_ctl_in(args)
+            .expect("bad control-in")
+            .expect("control-in is a required parameter");
 
         let mut message = Message::recv_msg(&mut control)
             .await

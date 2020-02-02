@@ -45,7 +45,7 @@ impl<E: End> CtlEnd<E> {
         Ok(close(self.raw_fd)?)
     }
 
-    pub fn into_async_pipe_end(self) -> Result<AsyncCtlEnd<E>, Error> {
+    pub fn into_async_ctl_end(self) -> Result<AsyncCtlEnd<E>, Error> {
         let fd = self.into_raw_fd();
         // this is safe since we are passing ownership from self to the new UnixStream
         let stream =

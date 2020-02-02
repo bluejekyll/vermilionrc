@@ -13,6 +13,8 @@ pub enum ErrorKind {
     // TokioError(#[from] tokio::io::Error),
     #[error("could not encode data: {0}")]
     BinCodeError(#[from] Box<bincode::ErrorKind>),
+    #[error("could not parse integer: {0}")]
+    ParseIntError(#[from] std::num::ParseIntError),
     #[error("an error occured: {0}")]
     ErrorMsg(String),
     #[error("an error occured: {0}")]

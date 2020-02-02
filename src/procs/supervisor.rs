@@ -17,7 +17,7 @@ use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
-use crate::procs::Process;
+use crate::procs::{HasCtlIn, HasCtlOut, NoCtlOut, Process};
 
 static EXEC: &str = "executable";
 static CMD_ARGS: &str = "cmd-args";
@@ -33,10 +33,10 @@ static MAX_STARTS: &str = "max-starts";
 pub struct Supervisor;
 
 #[async_trait]
-impl Process<Read> for Supervisor {
+impl Process<HasCtlIn, NoCtlOut> for Supervisor {
     const NAME: &'static str = "supervisor";
 
-    fn sub_command() -> App<'static, 'static> {
+    fn inner_sub_command() -> App<'static, 'static> {
         SubCommand::with_name(Self::NAME)
             .about("Process monitor for all Vermilion")
             .arg(
@@ -69,7 +69,7 @@ impl Process<Read> for Supervisor {
             )
     }
 
-    async fn run(control: AsyncCtlEnd<Read>, args: &ArgMatches<'_>) {
+    async fn run(args: &ArgMatches<'_>) {
         println!("Supervisor started");
 
         // How many times should the process be restarted?

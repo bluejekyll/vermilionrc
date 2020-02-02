@@ -15,7 +15,7 @@ use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
-use crate::procs::Process;
+use crate::procs::{CtlIn, CtlOut, HasCtlIn, HasCtlOut, Process};
 
 /// Launch programs
 ///
@@ -28,14 +28,14 @@ use crate::procs::Process;
 pub struct Launcher;
 
 #[async_trait]
-impl Process<Read> for Launcher {
+impl Process<HasCtlIn, HasCtlOut> for Launcher {
     const NAME: &'static str = "launcher";
 
-    fn sub_command() -> App<'static, 'static> {
+    fn inner_sub_command() -> App<'static, 'static> {
         SubCommand::with_name(Self::NAME).about("Process launcher for Vermilion")
     }
 
-    async fn run(control: AsyncCtlEnd<Read>, args: &ArgMatches<'_>) {
+    async fn run(args: &ArgMatches<'_>) {
         println!("Launcher started");
 
         for i in 0..60 {

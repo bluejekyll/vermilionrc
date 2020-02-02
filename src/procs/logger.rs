@@ -15,7 +15,7 @@ use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
-use crate::procs::Process;
+use crate::procs::{CtlIn, HasCtlIn, HasCtlOut, NoCtlOut, Process};
 
 /// Recv stdout file descriptors to poll and stdout data from.
 ///
@@ -26,16 +26,19 @@ use crate::procs::Process;
 pub struct Logger;
 
 #[async_trait]
-impl Process<Read> for Logger {
+impl Process<HasCtlIn, NoCtlOut> for Logger {
     const NAME: &'static str = "logger";
 
-    fn sub_command() -> App<'static, 'static> {
+    fn inner_sub_command() -> App<'static, 'static> {
         SubCommand::with_name(Self::NAME)
             .about("Common logger for all processes under vermilion management")
     }
 
-    async fn run(mut control: AsyncCtlEnd<Read>, args: &ArgMatches<'_>) {
+    async fn run(args: &ArgMatches<'_>) {
         println!("Logger: started");
+        let mut control = Self::get_ctl_in(args)
+            .expect("failed to get control-in")
+            .expect("control-in parameter not present");
 
         loop {
             let msg = Message::recv_msg(&mut control).await;
@@ -51,7 +54,6 @@ impl Process<Read> for Logger {
             let pid = msg.pid();
 
             let fd = msg.take_pipe().expect("take_pipe fails");
-            println!("received filedescriptor: {:?}", fd);
 
             // ok we got a file descriptor. Now we will spawn a background task to listen for log messages from it
             eprintln!("Logger: received filedescriptor: {:?}", fd);
@@ -83,7 +85,6 @@ async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>, pid: libc::pid_t) 
     // read until EOF, or there's an error
     loop {
         match lines.next_line().await {
-            // FIXME: need the PID, of the process here.
             Ok(Some(line)) => println!("{} LOG: {}", pid, line),
             Ok(None) => break,
             Err(e) => match e.kind() {
@@ -94,6 +95,5 @@ async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>, pid: libc::pid_t) 
         }
     }
 
-    // FIXME: need a PID here
     println!("{} LOGGING SHUTDOWN", pid);
 }

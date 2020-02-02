@@ -19,34 +19,17 @@ use vermilionrc::control::{AsyncCtlEnd, CtlEnd};
 use vermilionrc::fork::{new_process, Child};
 use vermilionrc::msg::{Message, ToMessageKind};
 use vermilionrc::pipe::{End, Pipe, PipeEnd, Read, Write};
-use vermilionrc::procs::{self, Ipc, Launcher, Leader, Logger, Process, Supervisor};
+use vermilionrc::procs::{self, CtlIn, CtlOut, Ipc, Launcher, Leader, Logger, Process, Supervisor};
 use vermilionrc::Error;
 
 trait SetupClapApp {
     fn setup_clap_app(self) -> Self;
-    fn default_subcommand_opts(self) -> Self;
 }
 
 impl<'a, 'b> SetupClapApp for App<'a, 'b> {
     fn setup_clap_app(self) -> Self {
         self.version(env!("CARGO_PKG_VERSION"))
             .author(env!("CARGO_PKG_AUTHORS"))
-    }
-
-    fn default_subcommand_opts(self) -> Self {
-        self.arg(
-            Arg::with_name(procs::CONTROL_IN)
-                .short("c")
-                .long(procs::CONTROL_IN)
-                .value_name("NUMBER")
-                .validator_os(|i| {
-                    i32::from_str_radix(&i.to_string_lossy(), 10)
-                        .map(|_| ())
-                        .map_err(|_| OsString::from("number was expected"))
-                })
-                .help("control input filedescriptor (used when forking the process)")
-                .takes_value(true),
-        )
     }
 }
 
@@ -59,31 +42,11 @@ fn main() -> Result<(), Error> {
         .setup_clap_app()
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .subcommand(init_sub_command().setup_clap_app())
-        .subcommand(
-            Leader::sub_command()
-                .setup_clap_app()
-                .default_subcommand_opts(),
-        )
-        .subcommand(
-            Logger::sub_command()
-                .setup_clap_app()
-                .default_subcommand_opts(),
-        )
-        .subcommand(
-            Launcher::sub_command()
-                .setup_clap_app()
-                .default_subcommand_opts(),
-        )
-        .subcommand(
-            Ipc::sub_command()
-                .setup_clap_app()
-                .default_subcommand_opts(),
-        )
-        .subcommand(
-            Supervisor::sub_command()
-                .setup_clap_app()
-                .default_subcommand_opts(),
-        )
+        .subcommand(Leader::sub_command().setup_clap_app())
+        .subcommand(Logger::sub_command().setup_clap_app())
+        .subcommand(Launcher::sub_command().setup_clap_app())
+        .subcommand(Ipc::sub_command().setup_clap_app())
+        .subcommand(Supervisor::sub_command().setup_clap_app())
         .get_matches();
 
     let mut runtime = runtime::Builder::new()
@@ -95,11 +58,11 @@ fn main() -> Result<(), Error> {
     runtime.block_on(async move {
         match args.subcommand() {
             (procs::INIT, Some(args)) => init(args).await,
-            (Leader::NAME, Some(args)) => run::<Leader, Write>(args).await,
-            (Logger::NAME, Some(args)) => run::<Logger, Read>(args).await,
-            (Launcher::NAME, Some(args)) => run::<Launcher, Read>(args).await,
-            (Ipc::NAME, Some(args)) => run::<Ipc, Read>(args).await,
-            (Supervisor::NAME, Some(args)) => run::<Supervisor, Read>(args).await,
+            (Leader::NAME, Some(args)) => run(Leader, args).await,
+            (Logger::NAME, Some(args)) => run(Logger, args).await,
+            (Launcher::NAME, Some(args)) => run(Launcher, args).await,
+            (Ipc::NAME, Some(args)) => run(Ipc, args).await,
+            (Supervisor::NAME, Some(args)) => run(Supervisor, args).await,
             ("", None) => {
                 println!("command required");
                 println!("{}", args.usage());
@@ -118,9 +81,9 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
     // Start the logger first, as it will receive all stdouts and stderrs from other processes
     let mut logger = new_process(Logger).expect("failed to start logger");
     let mut logger_control = logger
-        .take_control()
+        .take_control_in()
         .expect("no control")
-        .into_async_pipe_end()?;
+        .into_async_ctl_end()?;
 
     // Now that we have the logger, we can start all the other processes and hand over their output handles
     //
@@ -177,22 +140,18 @@ async fn init(_args: &ArgMatches<'_>) -> Result<(), Error> {
     Err(Error::from(format!("VermilionRC exited: {}", msg)))
 }
 
-async fn run<P: Process<E>, E: End>(args: &ArgMatches<'_>) -> Result<(), Error> {
-    let ctl_in = args
-        .value_of_lossy(procs::CONTROL_IN)
-        .expect("control-in not specified");
-
-    let fd = i32::from_str_radix(&ctl_in, 10).expect("control-in is not a number");
-    let ctl = unsafe { CtlEnd::<E>::from_raw_fd(fd) };
-
+async fn run<P: Process<I, O>, I: CtlIn, O: CtlOut>(
+    _p: P,
+    args: &ArgMatches<'_>,
+) -> Result<(), Error> {
     println!("Running {}", P::NAME);
-    P::run(ctl.into_async_pipe_end()?, args).await;
+    P::run(args).await;
 
     Err(Error::from("Process unexpected ended"))
 }
 
-async fn send_output_to_logger<E: End + ToMessageKind>(
-    child: &mut Child<E>,
+async fn send_output_to_logger(
+    child: &mut Child,
     logger_ctl: &mut AsyncCtlEnd<Write>,
 ) -> Result<(), crate::Error> {
     let out: ChildStdout = child
