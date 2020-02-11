@@ -16,6 +16,7 @@ use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
 use crate::procs::{CtlIn, HasCtlIn, HasCtlOut, NoCtlOut, Process};
+use crate::Error;
 
 /// Recv stdout file descriptors to poll and stdout data from.
 ///
@@ -34,7 +35,7 @@ impl Process<HasCtlIn, NoCtlOut> for Logger {
             .about("Common logger for all processes under vermilion management")
     }
 
-    async fn run(args: &ArgMatches<'_>) {
+    async fn run(self, args: &ArgMatches<'_>) -> Result<(), Error> {
         println!("Logger: started");
         let mut control = Self::get_ctl_in(args)
             .expect("failed to get control-in")
@@ -43,7 +44,7 @@ impl Process<HasCtlIn, NoCtlOut> for Logger {
         loop {
             let msg = Message::recv_msg(&mut control).await;
 
-            let mut msg: Message<Read> = match msg {
+            let mut msg: Message = match msg {
                 Ok(msg) => msg,
                 Err(e) => {
                     eprintln!("Logger: error receiving message");
@@ -51,17 +52,11 @@ impl Process<HasCtlIn, NoCtlOut> for Logger {
                 }
             };
 
-            let pid = msg.pid();
-
-            let fd = msg.take_pipe().expect("take_pipe fails");
+            let pid = msg.metadata().pid();
+            let reader = msg.take_read_pipe_end().expect("take_pipe fails");
 
             // ok we got a file descriptor. Now we will spawn a background task to listen for log messages from it
-            eprintln!("Logger: received filedescriptor: {:?}", fd);
-
-            let reader = fd
-                .into_async_pipe_end()
-                .expect("could not make async pipe end");
-
+            println!("Logger: received fd from: {}", pid);
             tokio::spawn(print_messages_to_stdout(reader, pid));
         }
     }

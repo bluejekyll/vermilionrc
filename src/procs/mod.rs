@@ -28,6 +28,7 @@ use clap::{App, Arg, ArgMatches};
 use crate::control::{AsyncCtlEnd, CtlEnd};
 use crate::fork::StdIoConf;
 use crate::pipe::{End, Read, Write};
+use crate::Error;
 
 pub const CONTROL_IN: &str = "control-in";
 pub const CONTROL_OUT: &str = "control-out";
@@ -54,7 +55,7 @@ pub trait Process<I: CtlIn, O: CtlOut>: Sized + Send + 'static {
         Self::ctl_out_opts(app)
     }
 
-    async fn run(args: &ArgMatches<'_>);
+    async fn run(self, args: &ArgMatches<'_>) -> Result<(), Error>;
 
     fn has_control_in() -> bool {
         I::has_control_in()

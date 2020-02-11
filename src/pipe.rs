@@ -138,6 +138,7 @@ impl<E: End> IntoRawFd for PipeEnd<E> {
 // TODO: requires forgetting self when STDIN or SRDOUT are attached to it...
 impl<E: End> Drop for PipeEnd<E> {
     fn drop(&mut self) {
+        // FIXME: common close function?
         match self.raw_fd {
             // don't implicitly close any of the std io
             0..=2 => return,

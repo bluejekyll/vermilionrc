@@ -40,6 +40,10 @@ pub struct Child {
 }
 
 impl Child {
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     pub fn take_stdout(&mut self) -> Option<ChildStdout> {
         self.child.stdout.take()
     }

@@ -16,6 +16,7 @@ use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
 use crate::procs::{CtlIn, CtlOut, HasCtlIn, HasCtlOut, Process};
+use crate::Error;
 
 /// Launch programs
 ///
@@ -35,13 +36,17 @@ impl Process<HasCtlIn, HasCtlOut> for Launcher {
         SubCommand::with_name(Self::NAME).about("Process launcher for Vermilion")
     }
 
-    async fn run(args: &ArgMatches<'_>) {
+    async fn run(self, args: &ArgMatches<'_>) -> Result<(), Error> {
+        // FIXME: register SIGCHLD handler to reap all Zombie processes
+
         println!("Launcher started");
 
         for i in 0..60 {
             println!("{} awaiting input: {}", Launcher::NAME, i);
             std::thread::sleep(std::time::Duration::from_secs(1))
         }
+
+        Ok(())
     }
 
     fn get_stdio() -> StdIoConf {

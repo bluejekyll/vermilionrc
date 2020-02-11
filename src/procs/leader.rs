@@ -15,6 +15,7 @@ use crate::fork::StdIoConf;
 use crate::msg;
 use crate::pipe::Write;
 use crate::procs::{HasCtlOut, NoCtlIn, Process};
+use crate::Error;
 
 /// Issue commands to the Launcher
 ///
@@ -33,7 +34,7 @@ impl Process<NoCtlIn, HasCtlOut> for Leader {
         SubCommand::with_name(Self::NAME).about("Controller for issuing instructions to Vermilion")
     }
 
-    async fn run(args: &ArgMatches<'_>) {
+    async fn run(self, args: &ArgMatches<'_>) -> Result<(), Error> {
         println!("Leader started");
         eprintln!("Leader seriously started");
 
@@ -41,6 +42,8 @@ impl Process<NoCtlIn, HasCtlOut> for Leader {
             println!("{} awaiting input: {}", Leader::NAME, i);
             std::thread::sleep(std::time::Duration::from_secs(1))
         }
+
+        Ok(())
     }
 
     fn get_stdio() -> StdIoConf {

@@ -18,6 +18,7 @@ use crate::fork::StdIoConf;
 use crate::msg::Message;
 use crate::pipe::{AsyncPipeEnd, Read};
 use crate::procs::{HasCtlIn, HasCtlOut, NoCtlOut, Process};
+use crate::Error;
 
 static EXEC: &str = "executable";
 static CMD_ARGS: &str = "cmd-args";
@@ -69,7 +70,7 @@ impl Process<HasCtlIn, NoCtlOut> for Supervisor {
             )
     }
 
-    async fn run(args: &ArgMatches<'_>) {
+    async fn run(self, args: &ArgMatches<'_>) -> Result<(), Error> {
         println!("Supervisor started");
 
         // How many times should the process be restarted?
@@ -107,6 +108,8 @@ impl Process<HasCtlIn, NoCtlOut> for Supervisor {
                 .await
                 .expect("process failed to run");
         }
+
+        Ok(())
     }
 
     fn get_stdio() -> StdIoConf {

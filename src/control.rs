@@ -161,6 +161,10 @@ impl<E: End> AsyncCtlEnd<E> {
             ghost: PhantomData,
         })
     }
+
+    pub fn into_raw_fd(mut self) -> Result<RawFd, Error> {
+        Ok(self.stream.into_inner()?.into_raw_fd())
+    }
 }
 
 trait RecvMsg {
