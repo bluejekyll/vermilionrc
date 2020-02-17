@@ -11,13 +11,21 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use clap::{App, ArgMatches, SubCommand};
 use tokio::io::AsyncReadExt;
+use tokio::select;
 
 use crate::control::AsyncCtlEnd;
 use crate::fork::StdIoConf;
 use crate::msg::{Message, Metadata};
 use crate::pipe::{Read, Write};
+use crate::procs::leader::{self, Command, CommandResponse};
 use crate::procs::{self, CtlIn, CtlOut, HasCtlIn, HasCtlOut, Process};
 use crate::Error;
+
+/// All message types expected by Ipc
+enum IpcMessage {
+    /// Messages recieved from the Leader
+    FromLeader(Message),
+}
 
 /// Inter-process-communucation service.
 ///
@@ -50,37 +58,64 @@ impl Process<HasCtlIn, HasCtlOut> for Ipc {
 
         // all of these are passed over...
         let logger: Logger = get_logger(&mut control).await?;
-        let leader: Leader = get_leader(&mut control).await?;
+        let mut leader: Leader = get_leader(&mut control).await?;
         let launcher: Launcher = get_launcher(&mut control).await?;
-        let procs: HashMap<libc::pid_t, AsyncCtlEnd<Write>> = HashMap::new();
 
-        // listen to our control in for new processes from the Launcher
-        //    send all pipes to logger
-        //    register ctl's to procs
+        // processes
+        let proc_names: HashMap<String, libc::pid_t> = HashMap::new();
+        let procs: HashMap<libc::pid_t, Supervised> = HashMap::new();
 
-        // listen to the leader for messages to the launcher or target processes...
-        //    send message
-        //    how to handle Read requests, like list processes
-        //      requesting process sends a ctl through the Leader,
-        //      and that is used for the response...
-        let mut message = Message::recv_msg(&mut control)
-            .await
-            .expect("no msg received");
+        for i in 0..60 {
+            #[allow(clippy::modulo_one)]
+            let message: Result<IpcMessage, Error> = select! {
+               // listen to the leader for messages to the launcher or target processes...
+               //    send message
+               //    how to handle Read requests, like list processes
+               //      requesting process sends a ctl through the Leader,
+               //      and that is used for the response...
+               message = leader.recv_msg() => message.map(IpcMessage::FromLeader),
+               else => unimplemented!(),
+            };
 
-        // let fd = message.take_fd().ok_or_else(|| "expected an fd")?;
-        // println!("received filedescriptor: {:?}", fd);
+            match message {
+                Ok(IpcMessage::FromLeader(message)) => {
+                    let (cmd, ctl_out) = handle_leader_message(message, &mut leader).await?;
+                    match cmd {
+                        Command::Init(_) => unimplemented!(),
+                        Command::Start(_) => unimplemented!(),
+                        Command::Stop(_) => unimplemented!(),
+                        Command::Restart(_) => unimplemented!(),
+                        Command::Status(_) => unimplemented!(),
+                        Command::List => {
+                            for supervised in &procs {
+                                // TODO: ask for results from each process
+                            }
+                            // TODO: send end of list...
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("error recieving message: {}", e);
+                }
+            }
 
-        // let mut reader = fd.into;
+            // let fd = message.take_fd().ok_or_else(|| "expected an fd")?;
+            // println!("received filedescriptor: {:?}", fd);
 
-        // let mut buf = [0u8; 1024];
-        // let len = reader.read(&mut buf).await.expect("failed to read");
-        // let line = String::from_utf8_lossy(&buf[..len]);
-        // println!("LOG_LINE: {}", line);
+            // let mut reader = fd.into;
 
-        // for i in 0..60 {
-        //     println!("{} awaiting input: {}", Ipc::NAME, i);
-        //     std::thread::sleep(std::time::Duration::from_secs(1))
-        // }
+            // let mut buf = [0u8; 1024];
+            // let len = reader.read(&mut buf).await.expect("failed to read");
+            // let line = String::from_utf8_lossy(&buf[..len]);
+            // println!("LOG_LINE: {}", line);
+
+            // listen to our control in for new processes from the Launcher
+            //    send all pipes to logger
+            //    register ctl's to procs
+
+            //     println!("{} awaiting input: {}", Ipc::NAME, i);
+            //     std::thread::sleep(std::time::Duration::from_secs(1))
+        }
 
         unimplemented!()
     }
@@ -98,6 +133,13 @@ impl Process<HasCtlIn, HasCtlOut> for Ipc {
 
 struct Logger(libc::pid_t, AsyncCtlEnd<Write>);
 struct Leader(libc::pid_t, AsyncCtlEnd<Read>);
+
+impl Leader {
+    async fn recv_msg(&mut self) -> Result<Message, Error> {
+        Message::recv_msg(&mut self.1).await
+    }
+}
+
 struct Launcher(libc::pid_t, AsyncCtlEnd<Write>);
 
 /// Ensure the source pid is the original parent, i.e. VermilionRC/Launcher
@@ -109,8 +151,15 @@ fn verify_pid(_msg: &Metadata) -> Result<(), Error> {
 async fn get_logger(control: &mut AsyncCtlEnd<Read>) -> Result<Logger, Error> {
     let mut message = Message::recv_msg(control).await?;
 
-    let pid = match message.metadata().proc_name() {
-        procs::Logger::NAME => message.metadata().pid(),
+    let pid = match message
+        .metadata()
+        .proc_name()
+        .expect("name required for registration")
+    {
+        procs::Logger::NAME => message
+            .metadata()
+            .pid()
+            .expect("pid required with logger registration"),
         name => return Err(format!("Wrong process: {}", name).into()),
     };
 
@@ -123,8 +172,15 @@ async fn get_logger(control: &mut AsyncCtlEnd<Read>) -> Result<Logger, Error> {
 async fn get_leader(control: &mut AsyncCtlEnd<Read>) -> Result<Leader, Error> {
     let mut message = Message::recv_msg(control).await?;
 
-    let pid = match message.metadata().proc_name() {
-        procs::Logger::NAME => message.metadata().pid(),
+    let pid = match message
+        .metadata()
+        .proc_name()
+        .expect("name required for registration")
+    {
+        procs::Logger::NAME => message
+            .metadata()
+            .pid()
+            .expect("pid required for registration"),
         name => return Err(format!("Wrong process: {}", name).into()),
     };
 
@@ -137,8 +193,15 @@ async fn get_leader(control: &mut AsyncCtlEnd<Read>) -> Result<Leader, Error> {
 async fn get_launcher(control: &mut AsyncCtlEnd<Read>) -> Result<Launcher, Error> {
     let mut message = Message::recv_msg(control).await?;
 
-    let pid = match message.metadata().proc_name() {
-        procs::Logger::NAME => message.metadata().pid(),
+    let pid = match message
+        .metadata()
+        .proc_name()
+        .expect("name required for registration")
+    {
+        procs::Logger::NAME => message
+            .metadata()
+            .pid()
+            .expect("pid required for registration"),
         name => return Err(format!("Wrong process: {}", name).into()),
     };
 
@@ -146,4 +209,39 @@ async fn get_launcher(control: &mut AsyncCtlEnd<Read>) -> Result<Launcher, Error
         .take_write_ctl_end()
         .ok_or_else(|| "expected write ctl end")?;
     Ok(Launcher(pid, ctl))
+}
+
+/// This takes a message from the Leader
+///
+/// # Returns
+///
+/// The issued command and the response channel for all results.
+async fn handle_leader_message(
+    mut message: Message,
+    leader: &mut Leader,
+) -> Result<(leader::Command, AsyncCtlEnd<Write>), Error> {
+    // get the command being issued
+    let cmd = message
+        .take_kind()
+        .ok_or_else(|| Error::from("Something stole our command"))?
+        .into_command()
+        .map_err(|_| Error::from("expected a command from the Leader"))?;
+
+    // Leader should always send another message along witht eh output channel for the result
+    //   this prevent the potential that leader could recieve commands from an unprivileged sub-process
+    let mut message = leader.recv_msg().await?;
+
+    // FIXME: verify message metadata
+    // TODO: let's just combine this into the initial message
+    let ctl_out = message
+        .take_write_ctl_end()
+        .ok_or_else(|| "expected write ctl end")?;
+
+    Ok((cmd, ctl_out))
+}
+
+struct Supervised {
+    id: libc::pid_t,
+    name: String,
+    supervisor_ctl: AsyncCtlEnd<Write>,
 }

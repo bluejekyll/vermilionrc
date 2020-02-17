@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::task::Poll;
 
 use bincode;
+use enum_as_inner::EnumAsInner;
 use futures::future::poll_fn;
 use futures::ready;
 use nix::sys::socket::{ControlMessage, ControlMessageOwned, MsgFlags};
@@ -19,14 +20,17 @@ use tokio::process::{ChildStderr, ChildStdout};
 
 use crate::control::{AsyncCtlEnd, CtlEnd};
 use crate::pipe::{AsyncPipeEnd, End, PipeEnd, Read, Write};
+use crate::procs::leader;
 use crate::Error;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, EnumAsInner)]
 pub enum MessageKind {
     ReadPipeEnd,
     WritePipeEnd,
     ReadCtlEnd,
     WriteCtlEnd,
+    Command(leader::Command),
+    CommandResponse(leader::CommandResponse),
 }
 
 pub trait ToMessageKind {
@@ -73,21 +77,21 @@ impl ToMessageKind for AsyncCtlEnd<Write> {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Metadata {
     /// The name of the process this is associated to
-    proc_name: String,
+    proc_name: Option<String>,
     /// The process id of the associated handle
-    pid: libc::pid_t,
+    pid: Option<libc::pid_t>,
     /// The process that sent the message
     source_pid: libc::pid_t,
     /// The process for which this is targeted
-    target_pid: libc::pid_t,
+    target_pid: Option<libc::pid_t>,
 }
 
 impl Metadata {
     pub fn new(
-        proc_name: String,
-        pid: libc::pid_t,
+        proc_name: Option<String>,
+        pid: Option<libc::pid_t>,
         source_pid: libc::pid_t,
-        target_pid: libc::pid_t,
+        target_pid: Option<libc::pid_t>,
     ) -> Self {
         Metadata {
             proc_name,
@@ -97,27 +101,27 @@ impl Metadata {
         }
     }
 
-    pub fn proc_name(&self) -> &str {
-        &self.proc_name
+    pub fn proc_name(&self) -> Option<&str> {
+        self.proc_name.as_ref().map(String::as_str)
     }
 
-    pub fn pid(&self) -> libc::pid_t {
-        self.pid
+    pub fn pid(&self) -> Option<libc::pid_t> {
+        self.pid.clone()
     }
 
     pub fn source_pid(&self) -> libc::pid_t {
         self.source_pid
     }
 
-    pub fn target_pid(&self) -> libc::pid_t {
-        self.target_pid
+    pub fn target_pid(&self) -> Option<libc::pid_t> {
+        self.target_pid.clone()
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MessageData {
     meta: Metadata,
-    kind: MessageKind,
+    kind: Option<MessageKind>,
 }
 
 /// This is not serializable, it's used to cary message metadata
@@ -135,7 +139,10 @@ impl Message {
         let (kind, fd) = data.to_message_kind()?;
 
         Ok(Self {
-            data: MessageData { meta, kind },
+            data: MessageData {
+                meta,
+                kind: Some(kind),
+            },
             fd,
         })
     }
@@ -143,7 +150,12 @@ impl Message {
     pub async fn send_msg(mut self, target: &mut AsyncCtlEnd<Write>) -> Result<(), Error> {
         println!("sending message");
         let mut cmsg: [RawFd; 1] = [0; 1];
-        let fd_to_send = match self.data.kind {
+        let fd_to_send = match self
+            .data
+            .kind
+            .as_ref()
+            .ok_or_else(|| Error::from("kind must not be None here"))?
+        {
             MessageKind::ReadPipeEnd
             | MessageKind::WritePipeEnd
             | MessageKind::ReadCtlEnd
@@ -200,7 +212,11 @@ impl Message {
 
             let data: MessageData = bincode::deserialize(recv_iovec_to_recv[0].as_slice())?;
 
-            let fd: Option<RawFd> = match data.kind {
+            let fd: Option<RawFd> = match data
+                .kind
+                .as_ref()
+                .ok_or_else(|| Error::from("kind must not be None here"))?
+            {
                 MessageKind::ReadPipeEnd
                 | MessageKind::WritePipeEnd
                 | MessageKind::ReadCtlEnd
@@ -230,7 +246,7 @@ impl Message {
     }
 
     pub fn take_read_pipe_end(&mut self) -> Option<AsyncPipeEnd<Read>> {
-        match self.data.kind {
+        match self.data.kind.as_ref()? {
             MessageKind::ReadPipeEnd => {
                 let fd = self.fd.take()?;
                 unsafe { PipeEnd::from_raw_fd(fd).into_async_pipe_end().ok() }
@@ -240,7 +256,7 @@ impl Message {
     }
 
     pub fn take_write_pipe_end(&mut self) -> Option<AsyncPipeEnd<Read>> {
-        match self.data.kind {
+        match self.data.kind.as_ref()? {
             MessageKind::WritePipeEnd => {
                 let fd = self.fd.take()?;
                 unsafe { PipeEnd::from_raw_fd(fd).into_async_pipe_end().ok() }
@@ -250,7 +266,7 @@ impl Message {
     }
 
     pub fn take_read_ctl_end(&mut self) -> Option<AsyncCtlEnd<Read>> {
-        match self.data.kind {
+        match self.data.kind.as_ref()? {
             MessageKind::ReadCtlEnd => {
                 let fd = self.fd.take()?;
                 unsafe { CtlEnd::from_raw_fd(fd).into_async_ctl_end().ok() }
@@ -260,7 +276,7 @@ impl Message {
     }
 
     pub fn take_write_ctl_end(&mut self) -> Option<AsyncCtlEnd<Write>> {
-        match self.data.kind {
+        match self.data.kind.as_ref()? {
             MessageKind::WriteCtlEnd => {
                 let fd = self.fd.take()?;
                 unsafe { CtlEnd::from_raw_fd(fd).into_async_ctl_end().ok() }
@@ -272,6 +288,14 @@ impl Message {
     /// Get the message metadata
     pub fn metadata(&self) -> &Metadata {
         &self.data.meta
+    }
+
+    pub fn kind(&self) -> Option<&MessageKind> {
+        self.data.kind.as_ref()
+    }
+
+    pub fn take_kind(&mut self) -> Option<MessageKind> {
+        self.data.kind.take()
     }
 }
 

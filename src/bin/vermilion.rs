@@ -43,6 +43,7 @@ fn main() -> Result<(), Error> {
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .subcommand(init_sub_command().setup_clap_app())
         .subcommand(Leader::sub_command().setup_clap_app())
+        .subcommand(Launcher::sub_command().setup_clap_app())
         .subcommand(Logger::sub_command().setup_clap_app())
         .subcommand(Ipc::sub_command().setup_clap_app())
         .subcommand(Supervisor::sub_command().setup_clap_app())
@@ -217,10 +218,10 @@ async fn send_output_to_logger(
         .ok_or_else(|| Error::from("no stdout available"))?;
 
     let metadata = Metadata::new(
-        proc_name.clone(),
-        child.pid() as _,
+        Some(proc_name.clone()),
+        Some(child.pid() as _),
         Message::my_pid(),
-        logger_pid,
+        Some(logger_pid),
     );
     Message::prepare_message(metadata, &out)?
         .send_msg(logger_ctl)
@@ -230,7 +231,12 @@ async fn send_output_to_logger(
         .take_stderr()
         .ok_or_else(|| Error::from("no stdout available"))?;
 
-    let metadata = Metadata::new(proc_name, child.pid() as _, Message::my_pid(), logger_pid);
+    let metadata = Metadata::new(
+        Some(proc_name),
+        Some(child.pid() as _),
+        Message::my_pid(),
+        Some(logger_pid),
+    );
     Message::prepare_message(metadata, &out)?
         .send_msg(logger_ctl)
         .await
@@ -244,7 +250,12 @@ async fn send_ctl_to_ipc<T: ToMessageKind>(
     ipc_pid: libc::pid_t,
     ipc_ctl: &mut AsyncCtlEnd<Write>,
 ) -> Result<(), crate::Error> {
-    let metadata = Metadata::new(proc_name.to_string(), pid, Message::my_pid(), ipc_pid);
+    let metadata = Metadata::new(
+        Some(proc_name.to_string()),
+        Some(pid),
+        Message::my_pid(),
+        Some(ipc_pid),
+    );
 
     Message::prepare_message(metadata, ctl)?
         .send_msg(ipc_ctl)

@@ -52,12 +52,13 @@ impl Process<HasCtlIn, NoCtlOut> for Logger {
                 }
             };
 
-            let pid = msg.metadata().pid();
+            let pid = msg.metadata().pid().unwrap_or(-1);
+            let name = msg.metadata().proc_name().unwrap_or("unknown").to_string();
             let reader = msg.take_read_pipe_end().expect("take_pipe fails");
 
             // ok we got a file descriptor. Now we will spawn a background task to listen for log messages from it
             println!("Logger: received fd from: {}", pid);
-            tokio::spawn(print_messages_to_stdout(reader, pid));
+            tokio::spawn(print_messages_to_stdout(reader, pid, name));
         }
     }
 
@@ -73,14 +74,14 @@ impl Process<HasCtlIn, NoCtlOut> for Logger {
     }
 }
 
-async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>, pid: libc::pid_t) {
+async fn print_messages_to_stdout(reader: AsyncPipeEnd<Read>, pid: libc::pid_t, proc_name: String) {
     use tokio::io::ErrorKind;
     let mut lines = BufReader::with_capacity(1_024, reader).lines();
 
     // read until EOF, or there's an error
     loop {
         match lines.next_line().await {
-            Ok(Some(line)) => println!("{} LOG: {}", pid, line),
+            Ok(Some(line)) => println!("LOG:{}[{}]: {}", proc_name, pid, line),
             Ok(None) => break,
             Err(e) => match e.kind() {
                 // something odd here...

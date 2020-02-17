@@ -5,11 +5,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-mod ipc;
-mod launcher;
-mod leader;
-mod logger;
-mod supervisor;
+pub mod ipc;
+pub mod launcher;
+pub mod leader;
+pub mod logger;
+pub mod supervisor;
 
 pub use ipc::Ipc;
 pub use launcher::Launcher;

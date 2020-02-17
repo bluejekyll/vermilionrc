@@ -10,6 +10,7 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -23,6 +24,15 @@ use crate::Error;
 static EXEC: &str = "executable";
 static CMD_ARGS: &str = "cmd-args";
 static MAX_STARTS: &str = "max-starts";
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Status {
+    Starting,
+    Running,
+    Stopping,
+    Stopped,
+    Unknown,
+}
 
 /// Launch and monitor processes
 ///
