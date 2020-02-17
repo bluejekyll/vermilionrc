@@ -13,4 +13,20 @@ repository = "https://github.com/bluejekyll/vermilion"
 readme = "README.md"
 license = "MIT/Apache-2.0"
 
+[[bin]]
+name = "vermilion"
+path = "src/bin/vermilion.rs"
+
 [dependencies]
+async-trait = "0.1.22"
+bincode = "1.2.1"
+clap = "2.33"
+enum-as-inner = "0.3.0"
+futures = "0.3.1"
+libc = "0.2.66"
+mio = "0.6.21"
+mio-uds = "0.6.7"
+nix = "0.16.1"
+serde ={ version = "1.0.104", features = ["derive"] } 
+thiserror = "1.0.9"
+tokio = { version = "0.2.4", default-features = false, features = ["full"] }

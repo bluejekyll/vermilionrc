@@ -1,11 +1,14 @@
 # VermilionRC
 
+<img src="vermilionrc-logo.svg" width="250" height="250" alt="VermilionRC"/>
+
+
 [![Discord](https://img.shields.io/discord/590067103822774272.svg)](https://discord.gg/Drs37ES)
 
 A safe and reliable process manager. The name is derived from the color of paint that is often used as a protective coating on Rust, i.e. this can be used to help protect and run Rust binaries, or any binary.
 
 ```
-noun: vermilion; noun: vermillion
+noun: vermilion
 
     a brilliant red pigment made from mercury sulfide (cinnabar).
         a brilliant red color.
@@ -25,7 +28,7 @@ noun: vermilion; noun: vermillion
 - Declaritive extensibility
 - Async or event driven startup
 - Optional dependent restart driven by parent processes
-- Log aggregation and forwarding
+- stdout aggregation and forwarding
 - Embeddable in other existing init systems
 - User mode and super user (priviledged) modes supported
 
